@@ -1,0 +1,19 @@
+{
+  "name": "sannata-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install --prefix server && npm install --prefix client && npm install --prefix demo-api",
+    "dev:server": "npm --prefix server run dev",
+    "dev:worker": "npm --prefix server run worker:dev",
+    "dev:client": "npm --prefix client run dev",
+    "dev:demo": "npm --prefix demo-api start",
+    "seed": "npm --prefix server exec -- tsx src/scripts/seed.ts",
+    "test": "npm --prefix server test",
+    "build:server": "npm --prefix server run build",
+    "build:client": "npm --prefix client run build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "lint:server": "npm --prefix server run lint"
+  }
+}
