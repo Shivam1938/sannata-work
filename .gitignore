@@ -9,5 +9,5 @@ coverage/
 .vite/
 client/.env.example
 PATCH-NOTES.md
-server/.env.example
 server/.prettierrc
+server/.env.example
