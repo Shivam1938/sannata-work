@@ -181,33 +181,35 @@ export default function Monitors() {
     {modal && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setModal(false)}>
       <form className="modal" onSubmit={save}>
         <div className="modal-heading"><div><p className="eyebrow">{editingId ? 'MONITOR SETTINGS' : 'NEW ENDPOINT'}</p><h2>{editingId ? 'Edit monitor' : 'Add a monitor'}</h2></div><button type="button" className="icon-button" onClick={() => setModal(false)} aria-label="Close"><X/></button></div>
-        <div className="form-grid">
-          <label>Monitor name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Production API"/></label>
-          <label>HTTP method<select value={form.method} onChange={(event) => setForm({ ...form, method: event.target.value })}>{['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].map((method) => <option key={method}>{method}</option>)}</select></label>
-          <label className="form-span-two">Endpoint URL<input required type="url" value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} placeholder="https://api.example.com/health"/></label>
-          <label>Check interval
-            <select value={intervalChoice} onChange={(event) => {
-              const value = event.target.value;
-              setIntervalChoice(value);
-              if (value !== 'custom') setInterval(Number(value));
-            }}>
-              {availablePresets.map((preset) => <option value={preset.seconds} key={preset.seconds}>{preset.label}</option>)}
-              {isPro && <option value="custom">Custom interval…</option>}
-            </select>
-            <small>{isPro ? 'Pro supports 1 minute to 1 day.' : 'Free checks run no more often than every 5 minutes.'}</small>
-          </label>
-          <label>Request timeout<input type="number" min="1000" max="60000" value={form.timeoutMs} onChange={(event) => setForm({ ...form, timeoutMs: Number(event.target.value) })}/><small>Milliseconds (1,000–60,000)</small></label>
-          {isPro && intervalChoice === 'custom' && <div className="custom-interval-field">
-            <label>Custom duration<input type="number" min={customUnit === 'seconds' ? 60 : 1} max={customUnitMaximum} step="1" value={customValue} aria-invalid={customIntervalError} onChange={(event) => changeCustomInterval(Number(event.target.value), customUnit)}/></label>
-            <label>Unit<select value={customUnit} onChange={(event) => changeCustomInterval(customValue, event.target.value as IntervalUnit)}>{Object.keys(unitSeconds).map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
-            <small className="form-span-two">Minimum: 60 seconds · Maximum: 1 day. The scheduler stores and runs this interval in seconds.</small>
-            {customIntervalError && <small className="interval-validation-error">Enter a whole-number duration from {customUnit === 'seconds' ? '60' : '1'} to {customUnitMaximum} {customUnit}.</small>}
-          </div>}
-          <label className="form-span-two">Expected HTTP status codes<input value={form.expectedStatusCodes.join(',')} onChange={(event) => setForm({ ...form, expectedStatusCodes: event.target.value.split(',').map((value: string) => value.trim()) })}/><small>For example: 200-299 or 200, 204</small></label>
-          <label className="check-label"><input type="checkbox" checked={form.coldStartAware} onChange={(event) => setForm({ ...form, coldStartAware: event.target.checked })}/><span>Detect cold starts <small>Recommended for services that may sleep.</small></span></label>
-          <label className="check-label"><input type="checkbox" checked={form.showOnStatusPage} onChange={(event) => setForm({ ...form, showOnStatusPage: event.target.checked })}/><span>Show on public status page <small>Only applies when a Pro status page is enabled.</small></span></label>
+        <div className="modal-body">
+          <div className="form-grid">
+            <label>Monitor name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Production API"/></label>
+            <label>HTTP method<select value={form.method} onChange={(event) => setForm({ ...form, method: event.target.value })}>{['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].map((method) => <option key={method}>{method}</option>)}</select></label>
+            <label className="form-span-two">Endpoint URL<input required type="url" value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} placeholder="https://api.example.com/health"/></label>
+            <label>Check interval
+              <select value={intervalChoice} onChange={(event) => {
+                const value = event.target.value;
+                setIntervalChoice(value);
+                if (value !== 'custom') setInterval(Number(value));
+              }}>
+                {availablePresets.map((preset) => <option value={preset.seconds} key={preset.seconds}>{preset.label}</option>)}
+                {isPro && <option value="custom">Custom interval…</option>}
+              </select>
+              <small>{isPro ? 'Pro supports 1 minute to 1 day.' : 'Free checks run no more often than every 5 minutes.'}</small>
+            </label>
+            <label>Request timeout<input type="number" min="1000" max="60000" value={form.timeoutMs} onChange={(event) => setForm({ ...form, timeoutMs: Number(event.target.value) })}/><small>Milliseconds (1,000–60,000)</small></label>
+            {isPro && intervalChoice === 'custom' && <div className="custom-interval-field">
+              <label>Custom duration<input type="number" min={customUnit === 'seconds' ? 60 : 1} max={customUnitMaximum} step="1" value={customValue} aria-invalid={customIntervalError} onChange={(event) => changeCustomInterval(Number(event.target.value), customUnit)}/></label>
+              <label>Unit<select value={customUnit} onChange={(event) => changeCustomInterval(customValue, event.target.value as IntervalUnit)}>{Object.keys(unitSeconds).map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
+              <small className="form-span-two">Minimum: 60 seconds · Maximum: 1 day. The scheduler stores and runs this interval in seconds.</small>
+              {customIntervalError && <small className="interval-validation-error">Enter a whole-number duration from {customUnit === 'seconds' ? '60' : '1'} to {customUnitMaximum} {customUnit}.</small>}
+            </div>}
+            <label className="form-span-two">Expected HTTP status codes<input value={form.expectedStatusCodes.join(',')} onChange={(event) => setForm({ ...form, expectedStatusCodes: event.target.value.split(',').map((value: string) => value.trim()) })}/><small>For example: 200-299 or 200, 204</small></label>
+            <label className="check-label"><input type="checkbox" checked={form.coldStartAware} onChange={(event) => setForm({ ...form, coldStartAware: event.target.checked })}/><span>Detect cold starts <small>Recommended for services that may sleep.</small></span></label>
+            <label className="check-label"><input type="checkbox" checked={form.showOnStatusPage} onChange={(event) => setForm({ ...form, showOnStatusPage: event.target.checked })}/><span>Show on public status page <small>Only applies when a Pro status page is enabled.</small></span></label>
+          </div>
+          {error && <div className="error-banner">{error}</div>}
         </div>
-        {error && <div className="error-banner">{error}</div>}
         <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setModal(false)}>Cancel</button><button className="primary-button" disabled={busy || !intervalIsValid}>{busy ? 'Saving…' : editingId ? 'Save changes' : 'Create monitor'}</button></div>
       </form>
     </div>}

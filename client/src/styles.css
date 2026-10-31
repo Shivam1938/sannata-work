@@ -53,14 +53,23 @@ html.light .chart-empty, html.light .empty-state, html.light .empty-small { colo
 @media(max-width:720px){.telemetry-onboarding .panel-heading{align-items:flex-start;flex-direction:column}.telemetry-key-actions{width:100%;flex-wrap:wrap}.telemetry-last-event{align-items:flex-start;flex-direction:column}.telemetry-last-event b{margin:0}.form-span-two,.custom-interval-field{grid-column:span 1}.custom-interval-field{grid-template-columns:1fr}.telemetry-example pre{font-size:9px}}
 @media(max-width:720px){.plan-comparison{padding:15px}.comparison-head,.comparison-row{grid-template-columns:minmax(0,1fr) 55px 55px;gap:5px;padding:10px 4px}.comparison-row{font-size:10px}}
 
-/* Keep the monitor editor usable on narrow screens and long labels. */
-.modal{width:min(640px,calc(100vw - 32px));min-width:0;overflow-x:hidden}
-.modal .form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+/* The monitor modal keeps its frame and actions fixed while only its fields scroll. */
+.modal{width:min(660px,calc(100vw - 32px));max-height:calc(100dvh - 32px);min-width:0;min-height:0;overflow:hidden;grid-template-rows:auto minmax(0,1fr) auto;gap:0}
+.modal-heading{padding-bottom:14px}
+.modal-body{min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:2px 4px 10px 0}
+.modal .form-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .modal .form-grid>label,.custom-interval-field>label{min-width:0}
-.modal .form-grid input,.modal .form-grid select{min-width:0}
-.modal .check-label>span{min-width:0;overflow-wrap:anywhere}
+.modal .form-grid input:not([type=checkbox]),.modal .form-grid select{width:100%;min-width:0}
+.modal .check-label{display:flex!important;flex-direction:row;align-items:flex-start!important;justify-content:flex-start;gap:10px!important;min-width:0;padding:10px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);white-space:normal}
+.modal .check-label>input[type=checkbox]{appearance:auto;width:16px;height:16px;flex:0 0 16px;margin:2px 0 0;padding:0;accent-color:var(--accent)}
+.modal .check-label>span{display:block;flex:1 1 auto;min-width:0;line-height:1.45;overflow-wrap:normal;word-break:normal}
+.modal .check-label>span small{display:block;white-space:normal;line-height:1.45;margin-top:3px}
+.modal input:focus-visible,.modal select:focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 70%,transparent);outline-offset:1px}
+.modal-actions{margin-top:0;padding-top:12px;border-top:1px solid var(--line)}
+.modal-actions .primary-button:not(:disabled):hover{filter:brightness(1.08)}
+.modal-actions button:disabled{cursor:not-allowed;opacity:.5}
 .interval-validation-error{grid-column:1/-1;color:var(--danger)!important}
-@media(max-width:560px){.modal-backdrop{padding:10px}.modal{width:100%;padding:16px}.modal .form-grid,.custom-interval-field{grid-template-columns:minmax(0,1fr)}.modal .form-span-two,.custom-interval-field{grid-column:1}.modal-actions{position:sticky;bottom:-16px;padding:12px 0;background:var(--panel)}}
+@media(max-width:720px){.modal-backdrop{padding:10px}.modal{width:min(660px,100%);max-height:calc(100dvh - 20px);padding:16px}.modal .form-grid,.custom-interval-field{grid-template-columns:minmax(0,1fr)}.modal .form-span-two,.custom-interval-field,.modal .check-label{grid-column:1}}
 
 /* Professional AI incident report */
 .ai-analysis{border:1px solid color-mix(in srgb,var(--purple) 34%,var(--line));background:linear-gradient(145deg,color-mix(in srgb,var(--panel2) 92%,var(--purple)),var(--panel));border-radius:14px;padding:20px;box-shadow:0 12px 32px rgba(0,0,0,.12)}
