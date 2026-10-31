@@ -90,6 +90,12 @@ export default function Monitors() {
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    if (!intervalIsValid) {
+      setError(isPro
+        ? 'Pro intervals must be a whole number between 60 seconds and 1 day.'
+        : 'Choose one of the available Free plan intervals.');
+      return;
+    }
     setBusy(true);
     setError('');
     setNotice('');
@@ -138,6 +144,12 @@ export default function Monitors() {
   const intervalIsValid = isPro
     ? Number.isInteger(form.intervalSeconds) && form.intervalSeconds >= 60 && form.intervalSeconds <= 86400
     : presets.some((preset) => preset.seconds === form.intervalSeconds && preset.seconds >= 300 && preset.seconds <= 3600);
+  const customUnitMaximum = Math.floor(86400 / unitSeconds[customUnit]);
+  const customIntervalError = intervalChoice === 'custom' && (
+    !Number.isInteger(customValue)
+    || customValue < (customUnit === 'seconds' ? 60 : 1)
+    || customValue > customUnitMaximum
+  );
 
   return <>
     <div className="page-heading">
@@ -186,9 +198,10 @@ export default function Monitors() {
           </label>
           <label>Request timeout<input type="number" min="1000" max="60000" value={form.timeoutMs} onChange={(event) => setForm({ ...form, timeoutMs: Number(event.target.value) })}/><small>Milliseconds (1,000–60,000)</small></label>
           {isPro && intervalChoice === 'custom' && <div className="custom-interval-field">
-            <label>Custom duration<input type="number" min="1" step="1" value={customValue} onChange={(event) => changeCustomInterval(Number(event.target.value), customUnit)}/></label>
+            <label>Custom duration<input type="number" min={customUnit === 'seconds' ? 60 : 1} max={customUnitMaximum} step="1" value={customValue} aria-invalid={customIntervalError} onChange={(event) => changeCustomInterval(Number(event.target.value), customUnit)}/></label>
             <label>Unit<select value={customUnit} onChange={(event) => changeCustomInterval(customValue, event.target.value as IntervalUnit)}>{Object.keys(unitSeconds).map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
             <small className="form-span-two">Minimum: 60 seconds · Maximum: 1 day. The scheduler stores and runs this interval in seconds.</small>
+            {customIntervalError && <small className="interval-validation-error">Enter a whole-number duration from {customUnit === 'seconds' ? '60' : '1'} to {customUnitMaximum} {customUnit}.</small>}
           </div>}
           <label className="form-span-two">Expected HTTP status codes<input value={form.expectedStatusCodes.join(',')} onChange={(event) => setForm({ ...form, expectedStatusCodes: event.target.value.split(',').map((value: string) => value.trim()) })}/><small>For example: 200-299 or 200, 204</small></label>
           <label className="check-label"><input type="checkbox" checked={form.coldStartAware} onChange={(event) => setForm({ ...form, coldStartAware: event.target.checked })}/><span>Detect cold starts <small>Recommended for services that may sleep.</small></span></label>

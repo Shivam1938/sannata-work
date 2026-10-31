@@ -53,6 +53,14 @@ html.light .chart-empty, html.light .empty-state, html.light .empty-small { colo
 @media(max-width:720px){.telemetry-onboarding .panel-heading{align-items:flex-start;flex-direction:column}.telemetry-key-actions{width:100%;flex-wrap:wrap}.telemetry-last-event{align-items:flex-start;flex-direction:column}.telemetry-last-event b{margin:0}.form-span-two,.custom-interval-field{grid-column:span 1}.custom-interval-field{grid-template-columns:1fr}.telemetry-example pre{font-size:9px}}
 @media(max-width:720px){.plan-comparison{padding:15px}.comparison-head,.comparison-row{grid-template-columns:minmax(0,1fr) 55px 55px;gap:5px;padding:10px 4px}.comparison-row{font-size:10px}}
 
+/* Keep the monitor editor usable on narrow screens and long labels. */
+.modal{width:min(640px,calc(100vw - 32px));min-width:0;overflow-x:hidden}
+.modal .form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.modal .form-grid>label,.custom-interval-field>label{min-width:0}
+.modal .form-grid input,.modal .form-grid select{min-width:0}
+.modal .check-label>span{min-width:0;overflow-wrap:anywhere}
+.interval-validation-error{grid-column:1/-1;color:var(--danger)!important}
+@media(max-width:560px){.modal-backdrop{padding:10px}.modal{width:100%;padding:16px}.modal .form-grid,.custom-interval-field{grid-template-columns:minmax(0,1fr)}.modal .form-span-two,.custom-interval-field{grid-column:1}.modal-actions{position:sticky;bottom:-16px;padding:12px 0;background:var(--panel)}}
 
 /* Professional AI incident report */
 .ai-analysis{border:1px solid color-mix(in srgb,var(--purple) 34%,var(--line));background:linear-gradient(145deg,color-mix(in srgb,var(--panel2) 92%,var(--purple)),var(--panel));border-radius:14px;padding:20px;box-shadow:0 12px 32px rgba(0,0,0,.12)}
