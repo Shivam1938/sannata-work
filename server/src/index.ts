@@ -75,6 +75,7 @@ app.use(errorHandler);
 
 async function start() {
   let workers: Awaited<ReturnType<typeof startWorkers>> | undefined;
+  let telegramBot: ReturnType<typeof getTelegramBot> = null;
   try {
     await connectDatabase();
     getRedisClient(); // Initialize Redis connection
@@ -86,7 +87,7 @@ async function start() {
 
     // Start Telegram bot (if configured)
     if (isRealTelegramConfig()) {
-      getTelegramBot({ polling: true });
+      telegramBot = getTelegramBot({ polling: true });
       logger.info({ mode: config.telegram.mode }, 'Telegram bot initialized');
     } else {
       logger.warn('Telegram bot token not configured — alerts disabled');
@@ -101,17 +102,24 @@ async function start() {
       if (shutdownPromise) return shutdownPromise;
       logger.info({ signal }, 'Shutting down...');
       shutdownPromise = (async () => {
-        const forceExit = setTimeout(() => process.exit(1), 10_000);
+        const forceExit = setTimeout(() => {
+          logger.warn('Closing remaining HTTP connections after shutdown timeout');
+          server.closeAllConnections();
+        }, 10_000);
+        const hardExit = setTimeout(() => process.exit(1), 20_000);
         forceExit.unref();
+        hardExit.unref();
         await new Promise<void>((resolve, reject) => {
           server.close((error) => error ? reject(error) : resolve());
         });
         await workers?.close();
+        if (telegramBot && config.telegram.mode === 'polling') await telegramBot.stopPolling();
         await closeSchedulerQueues();
         await closeRedis();
         await mongoose.disconnect();
         logger.info('Server stopped gracefully');
         clearTimeout(forceExit);
+        clearTimeout(hardExit);
         process.exitCode = 0;
       })();
       return shutdownPromise;

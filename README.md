@@ -125,6 +125,12 @@ The backend can process scheduled BullMQ jobs in the API Web Service process, so
 3. Configure the required production variables (`MONGODB_URI`, `REDIS_URL`, `JWT_SECRET`, `ENCRYPTION_KEY`, and `CLIENT_URL`) and set `RUN_WORKER=true`.
 4. Keep this Web Service at one instance when using the embedded worker. Do not also deploy the standalone worker for the same queues.
 
+Render environment setting:
+
+```text
+RUN_WORKER=true
+```
+
 Leave `RUN_WORKER` unset or `false` when deploying the API and worker as separate services. The standalone worker command remains `npm run worker:start`.
 
 ## Useful commands
