@@ -133,6 +133,10 @@ RUN_WORKER=true
 
 Leave `RUN_WORKER` unset or `false` when deploying the API and worker as separate services. The standalone worker command remains `npm run worker:start`.
 
+## Deploy the frontend on Vercel
+
+Set the Vercel project root directory to `client`, with `npm run build` as the build command and `dist` as the output directory. The checked-in `client/vercel.json` proxies `/api/*` requests to the Render API and rewrites frontend routes to `index.html`. This keeps browser authentication cookies on the Vercel origin. Do not set `VITE_API_URL` to the Render domain; leave it unset so production requests use the Vercel origin and its API proxy. Set the Render `CLIENT_URL` to the Vercel site origin (without `/login` or a trailing slash).
+
 ## Useful commands
 
 ```powershell
