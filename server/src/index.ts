@@ -7,9 +7,12 @@ import rateLimit from 'express-rate-limit';
 import { config, validateConfig, isRealTelegramConfig } from './config/index.js';
 import { logger } from './config/logger.js';
 import { connectDatabase } from './config/database.js';
-import { getRedisClient } from './config/redis.js';
+import { closeRedis, getRedisClient } from './config/redis.js';
+import { closeSchedulerQueues } from './queues/scheduler.js';
 import { getTelegramBot } from './services/alert.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
+import { startWorkers } from './worker/runtime.js';
+import mongoose from 'mongoose';
 
 // Validate config before anything else
 validateConfig();
@@ -71,9 +74,15 @@ app.use(notFound);
 app.use(errorHandler);
 
 async function start() {
+  let workers: Awaited<ReturnType<typeof startWorkers>> | undefined;
   try {
     await connectDatabase();
     getRedisClient(); // Initialize Redis connection
+
+    if (config.runWorker) {
+      workers = await startWorkers();
+      logger.info('BullMQ worker enabled in API process');
+    }
 
     // Start Telegram bot (if configured)
     if (isRealTelegramConfig()) {
@@ -83,29 +92,45 @@ async function start() {
       logger.warn('Telegram bot token not configured — alerts disabled');
     }
 
-    const server = app.listen(config.port, () => {
-      logger.info({ port: config.port, env: config.nodeEnv }, 'Server started');
-    });
+    const server = app.listen(config.port);
+    server.on('listening', () => logger.info({ port: config.port, env: config.nodeEnv }, 'Server started'));
 
     // Graceful shutdown
+    let shutdownPromise: Promise<void> | undefined;
     const shutdown = async (signal: string) => {
+      if (shutdownPromise) return shutdownPromise;
       logger.info({ signal }, 'Shutting down...');
-      server.close(async () => {
-        const mongoose = await import('mongoose');
-        await mongoose.default.disconnect();
-        const { closeRedis } = await import('./config/redis.js');
+      shutdownPromise = (async () => {
+        const forceExit = setTimeout(() => process.exit(1), 10_000);
+        forceExit.unref();
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => error ? reject(error) : resolve());
+        });
+        await workers?.close();
+        await closeSchedulerQueues();
         await closeRedis();
+        await mongoose.disconnect();
         logger.info('Server stopped gracefully');
-        process.exit(0);
-      });
-      // Force exit after 10s
-      setTimeout(() => process.exit(1), 10_000);
+        clearTimeout(forceExit);
+        process.exitCode = 0;
+      })();
+      return shutdownPromise;
     };
 
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => void shutdown('SIGTERM').catch((err) => {
+      logger.error({ err }, 'Server shutdown failed');
+      process.exitCode = 1;
+    }));
+    process.on('SIGINT', () => void shutdown('SIGINT').catch((err) => {
+      logger.error({ err }, 'Server shutdown failed');
+      process.exitCode = 1;
+    }));
   } catch (err) {
     logger.fatal({ err }, 'Failed to start server');
+    await workers?.close().catch((closeError) => logger.error({ err: closeError }, 'Failed to close workers'));
+    await closeSchedulerQueues().catch((closeError) => logger.error({ err: closeError }, 'Failed to close queues'));
+    await closeRedis().catch((closeError) => logger.error({ err: closeError }, 'Failed to close Redis'));
+    await mongoose.disconnect().catch((closeError) => logger.error({ err: closeError }, 'Failed to close MongoDB'));
     process.exit(1);
   }
 }

@@ -1,4 +1,4 @@
-import { Queue, QueueEvents } from 'bullmq';
+import { Queue } from 'bullmq';
 import { getRedisClient } from '../config/redis.js';
 import { Monitor } from '../models/Monitor.js';
 import { User } from '../models/User.js';
@@ -39,6 +39,13 @@ export function getCleanupQueue(): Queue {
     });
   }
   return cleanupQueue;
+}
+
+export async function closeSchedulerQueues(): Promise<void> {
+  const queues = [monitorQueue, cleanupQueue].filter((queue): queue is Queue => queue !== null);
+  monitorQueue = null;
+  cleanupQueue = null;
+  await Promise.all(queues.map((queue) => queue.close()));
 }
 
 class SchedulerService {

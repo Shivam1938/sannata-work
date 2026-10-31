@@ -8,7 +8,7 @@
 
 - Email/password authentication with JWT in an HttpOnly cookie.
 - Monitor CRUD, pause/resume, expected status codes, request headers/body and per-monitor timeouts.
-- BullMQ + Redis repeatable monitoring jobs with a separate worker process and startup reconciliation.
+- BullMQ + Redis repeatable monitoring jobs with startup reconciliation; worker can run separately or inside the API process.
 - Retry-based failure confirmation and cold-start classification.
 - Check history, uptime, average latency, p95/p99 and time-series data.
 - Incident open/resolve lifecycle, Telegram and SMTP email alerts.
@@ -28,8 +28,7 @@ Express + TypeScript API (:3001) ───── MongoDB (:27017)
         │                                    ▲
         ├── BullMQ queue ─── Redis (:6379)   │
         │                    ▲               │
-        │                    │               │
-        └────────────── Worker process ──────┘
+        └── Worker (same process or separate)┘
 
 Demo API (:3003)  ← target for local monitoring checks
 ```
@@ -96,6 +95,7 @@ See `server/.env.example` and `client/.env.example`.
 | `JWT_SECRET` | JWT signing secret |
 | `ENCRYPTION_KEY` | 64-character hex key for AES-256-GCM |
 | `CLIENT_URL` | Exact frontend origin for credentialed CORS |
+| `RUN_WORKER` | Set to `true` to run BullMQ workers inside the API process; defaults to `false` |
 | `ALLOW_PRIVATE_TARGETS` | Local-only switch for testing localhost targets; keep `false` outside local development |
 | `DEMO_MODE` | Enables the no-payment Pro demo upgrade when `true` |
 | `TELEGRAM_BOT_TOKEN` | Optional Telegram bot token |
@@ -115,6 +115,17 @@ The demo API listens on port 3003:
 - `GET /toggle?state=down|up` and `GET /state` — manually control the demo service.
 
 When monitoring localhost demo endpoints, set `ALLOW_PRIVATE_TARGETS=true` in `server/.env` for local development only. Restart both API and worker after changing it.
+
+## Deploy API and worker together on Render
+
+The backend can process scheduled BullMQ jobs in the API Web Service process, so a separate Background Worker is optional:
+
+1. Create a Render Web Service for this repository with **Root Directory** `server`.
+2. Set **Build Command** to `npm ci --include=dev && npm run build` and **Start Command** to `npm run start`.
+3. Configure the required production variables (`MONGODB_URI`, `REDIS_URL`, `JWT_SECRET`, `ENCRYPTION_KEY`, and `CLIENT_URL`) and set `RUN_WORKER=true`.
+4. Keep this Web Service at one instance when using the embedded worker. Do not also deploy the standalone worker for the same queues.
+
+Leave `RUN_WORKER` unset or `false` when deploying the API and worker as separate services. The standalone worker command remains `npm run worker:start`.
 
 ## Useful commands
 
@@ -138,7 +149,9 @@ npm run docker:down
 - Use HTTPS and set production cookie/CORS configuration before deployment.
 - Public status pages expose only monitors explicitly selected for the status page.
 - The request tester is rate-limited at the application level in production deployments; add reverse-proxy rate limiting and outbound network restrictions before public hosting.
-- The monitoring worker and API must both be running for scheduled checks and incident processing.
+- Scheduled checks require a worker: either enable the embedded worker with `RUN_WORKER=true`, or run the standalone worker alongside the API.
+- For a single Render Free Web Service, set `RUN_WORKER=true` on the API service to run both in one process. Do not also run the separate worker service in that setup. Use one API instance when embedding the worker; multiple instances each start a worker.
+- Local development scripts are unchanged: `npm run dev:server` starts only the API and `npm run dev:worker` starts the separate worker. To test embedded mode locally, set `RUN_WORKER=true` in `server/.env` and run the API only.
 - External Telegram, SMTP and Anthropic integrations require credentials and cannot be validated without them.
 
 ## Verification checklist

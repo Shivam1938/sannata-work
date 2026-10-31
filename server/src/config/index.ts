@@ -27,6 +27,7 @@ export const config = {
   },
   demoMode: process.env.DEMO_MODE === 'true',
   allowPrivateTargets: process.env.ALLOW_PRIVATE_TARGETS === 'true',
+  runWorker: process.env.RUN_WORKER?.trim().toLowerCase() === 'true',
   workerConcurrency: parseInt(process.env.WORKER_CONCURRENCY || '10', 10),
   logLevel: process.env.LOG_LEVEL || 'info',
   nodeEnv: process.env.NODE_ENV || 'development',

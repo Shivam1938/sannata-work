@@ -1,176 +1,24 @@
 import 'dotenv/config';
 import http from 'http';
-import { Worker, QueueEvents } from 'bullmq';
+import mongoose from 'mongoose';
 import { config } from '../config/index.js';
 import { logger } from '../config/logger.js';
 import { connectDatabase } from '../config/database.js';
 import { getRedisClient, closeRedis } from '../config/redis.js';
-import { Monitor } from '../models/Monitor.js';
-import { CheckResult } from '../models/CheckResult.js';
-import { performCheck, saveCheckResult, reclassifyAsColdStartIfNeeded } from '../services/checker.js';
-import { handleSuccessfulCheck, handleFailedCheck } from '../services/incident.js';
-import { schedulerService, MONITOR_QUEUE_NAME, CLEANUP_QUEUE_NAME } from '../queues/scheduler.js';
-import { User } from '../models/User.js';
-import { isScheduledCheckDue, isValidMonitorInterval } from '../services/monitoring-interval.js';
+import { closeSchedulerQueues } from '../queues/scheduler.js';
+import { startWorkers } from './runtime.js';
 
 const WORKER_HEALTH_PORT = config.port + 1;
 
-async function processMonitorJob(monitorId: string): Promise<void> {
-  const monitor = await Monitor.findById(monitorId).select(
-    '+consecutiveFailures name url method headers body bodyType authType authCredentials intervalSeconds timeoutMs expectedStatusCodes assertions coldStartAware keepAliveEnabled failureThreshold status userId currentIncidentId lastCheckedAt'
-  );
-
-  if (!monitor) {
-    logger.warn({ monitorId }, 'Monitor not found, skipping job');
-    return;
-  }
-
-  if (monitor.status === 'paused') {
-    logger.debug({ monitorId }, 'Monitor paused, skipping job');
-    return;
-  }
-
-  const owner = await User.findById(monitor.userId).select('plan proExpiresAt');
-  const proActive = owner?.plan === 'pro' && (!owner.proExpiresAt || owner.proExpiresAt.getTime() > Date.now());
-  const plan = proActive ? 'pro' : 'free';
-  if (!owner || !isValidMonitorInterval(monitor.intervalSeconds, plan)) {
-    await schedulerService.removeMonitorJob(monitorId);
-    logger.warn(
-      { monitorId, intervalSeconds: monitor.intervalSeconds, plan },
-      'Skipped scheduled check because its interval is not allowed on the current plan',
-    );
-    return;
-  }
-
-  if (!isScheduledCheckDue(monitor.lastCheckedAt, monitor.intervalSeconds)) {
-    logger.info(
-      { monitorId, intervalSeconds: monitor.intervalSeconds, lastCheckedAt: monitor.lastCheckedAt },
-      'Skipping scheduled check because the configured interval has not elapsed',
-    );
-    return;
-  }
-
-  logger.debug({ monitorId, name: monitor.name, url: monitor.url }, 'Running check');
-
-  // Perform the check (with retries built in)
-  const outcome = await performCheck(monitor);
-
-  // Apply cold-start reclassification based on retry evidence
-  if (outcome.success && monitor.coldStartAware) {
-    const hadRetryFailure = outcome.attempts > 1;
-    if (hadRetryFailure) {
-      outcome.classification = 'cold_start';
-    }
-  }
-
-  // Save the result
-  const checkResult = await saveCheckResult(monitor, outcome);
-
-  // After saving, check if we should reclassify based on historical median
-  if (outcome.success && monitor.coldStartAware && outcome.classification !== 'cold_start') {
-    const isColdStart = await reclassifyAsColdStartIfNeeded(
-      checkResult._id.toString(),
-      monitorId,
-      outcome.responseTimeMs || 0,
-      false
-    );
-    if (isColdStart) {
-      outcome.classification = 'cold_start';
-      checkResult.classification = 'cold_start';
-      await CheckResult.findByIdAndUpdate(checkResult._id, { classification: 'cold_start' });
-    } else if (outcome.responseTimeMs && outcome.responseTimeMs > 1000) {
-      // Mark as slow if response time > 1s but not cold start
-      outcome.classification = 'slow';
-      checkResult.classification = 'slow';
-      await CheckResult.findByIdAndUpdate(checkResult._id, { classification: 'slow' });
-    }
-  }
-
-  // Handle incident lifecycle
-  if (outcome.success || outcome.classification === 'cold_start' || outcome.classification === 'slow') {
-    await handleSuccessfulCheck(monitor, checkResult);
-  } else {
-    await handleFailedCheck(monitor, checkResult);
-  }
-
-  logger.debug(
-    {
-      monitorId,
-      success: outcome.success,
-      classification: outcome.classification,
-      responseTimeMs: outcome.responseTimeMs,
-      statusCode: outcome.statusCode,
-      attempts: outcome.attempts,
-    },
-    'Check complete'
-  );
-}
-
-async function processCleanupJob(): Promise<void> {
-  logger.info('Running retention cleanup');
-
-  const users = await User.find().select('_id plan');
-  let deleted = 0;
-
-  for (const user of users) {
-    const retentionDays = user.plan === 'pro' ? 30 : 7;
-    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
-
-    const result = await CheckResult.deleteMany({
-      userId: user._id,
-      checkedAt: { $lt: cutoff },
-    });
-    deleted += result.deletedCount;
-  }
-
-  logger.info({ deleted }, 'Retention cleanup complete');
-}
-
 async function start() {
+  let healthServer: http.Server | undefined;
+  let shutdownPromise: Promise<void> | undefined;
   try {
     await connectDatabase();
-    const redis = getRedisClient();
+    getRedisClient();
+    const workers = await startWorkers();
 
-    // Monitor check worker
-    const monitorWorker = new Worker(
-      MONITOR_QUEUE_NAME,
-      async (job) => {
-        const { monitorId } = job.data as { monitorId: string };
-        await processMonitorJob(monitorId);
-      },
-      {
-        connection: redis,
-        concurrency: config.workerConcurrency,
-      }
-    );
-
-    monitorWorker.on('failed', (job, err) => {
-      logger.error({ jobId: job?.id, err }, 'Monitor check job failed');
-    });
-
-    monitorWorker.on('error', (err) => {
-      logger.error({ err }, 'Monitor worker error');
-    });
-
-    // Cleanup worker
-    const cleanupWorker = new Worker(
-      CLEANUP_QUEUE_NAME,
-      async () => {
-        await processCleanupJob();
-      },
-      { connection: redis, concurrency: 1 }
-    );
-
-    cleanupWorker.on('failed', (job, err) => {
-      logger.error({ jobId: job?.id, err }, 'Cleanup job failed');
-    });
-
-    // Reconcile scheduler on startup
-    await schedulerService.reconcile();
-    await schedulerService.scheduleCleanup();
-
-    // Health check HTTP server
-    const healthServer = http.createServer((_req, res) => {
+    healthServer = http.createServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', worker: 'running', timestamp: new Date().toISOString() }));
     });
@@ -178,25 +26,36 @@ async function start() {
       logger.info({ port: WORKER_HEALTH_PORT }, 'Worker health check server started');
     });
 
-    logger.info({ concurrency: config.workerConcurrency }, 'Worker started');
-
-    // Graceful shutdown
-    const shutdown = async (signal: string) => {
+    const shutdown = (signal: string) => {
+      if (shutdownPromise) return shutdownPromise;
       logger.info({ signal }, 'Worker shutting down...');
-      await monitorWorker.close();
-      await cleanupWorker.close();
-      healthServer.close();
-      const mongoose = await import('mongoose');
-      await mongoose.default.disconnect();
-      await closeRedis();
-      logger.info('Worker stopped gracefully');
-      process.exit(0);
+      shutdownPromise = (async () => {
+        await workers.close();
+        if (healthServer?.listening) {
+          await new Promise<void>((resolve, reject) => {
+            healthServer!.close((error) => error ? reject(error) : resolve());
+          });
+        }
+        await closeSchedulerQueues();
+        await mongoose.disconnect();
+        await closeRedis();
+        logger.info('Worker stopped gracefully');
+      })();
+      return shutdownPromise;
     };
-
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => void shutdown('SIGTERM').catch((err) => {
+      logger.error({ err }, 'Worker shutdown failed');
+      process.exitCode = 1;
+    }));
+    process.on('SIGINT', () => void shutdown('SIGINT').catch((err) => {
+      logger.error({ err }, 'Worker shutdown failed');
+      process.exitCode = 1;
+    }));
   } catch (err) {
     logger.fatal({ err }, 'Failed to start worker');
+    await closeSchedulerQueues().catch((closeError) => logger.error({ err: closeError }, 'Failed to close queues'));
+    await mongoose.disconnect().catch((closeError) => logger.error({ err: closeError }, 'Failed to close MongoDB'));
+    await closeRedis().catch((closeError) => logger.error({ err: closeError }, 'Failed to close Redis'));
     process.exit(1);
   }
 }
