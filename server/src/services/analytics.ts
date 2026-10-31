@@ -181,9 +181,7 @@ export async function getMonitoringAnalytics(userId: string, range: AnalyticsRan
     const bucket = bucketRows.find((row) => row._id === index);
     const start = new Date(since.getTime() + index * bucketMs);
     return {
-      label: range === '24h'
-        ? start.toLocaleTimeString([], { hour: 'numeric' })
-        : start.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+      timestamp: start.toISOString(),
       total: bucket?.total ?? 0,
       success: bucket?.successful ?? 0,
       failed: bucket?.failed ?? 0,
