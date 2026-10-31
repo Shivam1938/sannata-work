@@ -15,7 +15,23 @@ export async function connectDatabase() {
 
 async function ensureTelemetryKeyHashIndex() {
   const users = mongoose.connection.collection('users');
-  const indexes = await users.indexes();
+  let indexes;
+  try {
+    indexes = await users.indexes();
+  } catch (error) {
+    const code = (error as { code?: number }).code;
+    if (code !== 26) throw error;
+
+    await users.createIndex(
+      { telemetryKeyHash: 1 },
+      {
+        name: 'telemetry_key_hash_unique',
+        unique: true,
+        partialFilterExpression: { telemetryKeyHash: { $type: 'string' } },
+      },
+    );
+    return;
+  }
   const telemetryIndexes = indexes.filter(
     (index) => Object.keys(index.key).length === 1 && index.key.telemetryKeyHash === 1,
   );
