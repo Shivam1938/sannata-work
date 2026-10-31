@@ -1,5 +1,5 @@
-import type { ICheckResult } from '../models/CheckResult.js';
-import { CheckResult } from '../models/CheckResult.js';
+import type { ICheckResult } from './models/CheckResult.js';
+import { CheckResult } from './models/CheckResult.js';
 
 export interface StatsResult {
   uptimePercent: number;

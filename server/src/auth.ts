@@ -2,10 +2,10 @@ import type { Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
-import { User } from '../models/User.js';
-import { config } from '../config/index.js';
-import type { AuthRequest } from '../middleware/auth.js';
-import { createError } from '../middleware/errorHandler.js';
+import { User } from './models/User.js';
+import { config } from './config/index.js';
+import type { AuthRequest } from './middleware/auth.js';
+import { createError } from './middleware/errorHandler.js';
 
 const BCRYPT_ROUNDS = 12;
 const TOKEN_EXPIRY = '7d';

@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
-import { ErrorType } from './CheckResult.js';
+import type { ErrorType } from './models/CheckResult.js';
 
 export interface IAlertSent {
   channel: 'telegram' | 'email';

@@ -12,11 +12,12 @@ import { createError } from '../middleware/errorHandler.js';
 import type { AuthRequest } from '../middleware/auth.js';
 import { logger } from '../config/logger.js';
 import { handleSuccessfulCheck, handleFailedCheck } from '../services/incident.js';
+import { isValidMonitorInterval, minimumMonitorInterval, MAX_MONITOR_INTERVAL_SECONDS } from '../services/monitoring-interval.js';
 
 // ─── Plan limits ──────────────────────────────────────────────────────────────
 const PLAN_LIMITS = {
-  free: { maxMonitors: 5, minIntervalSeconds: 300 },
-  pro: { maxMonitors: 50, minIntervalSeconds: 60 },
+  free: { maxMonitors: 5 },
+  pro: { maxMonitors: 50 },
 };
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -31,7 +32,7 @@ const monitorSchema = z.object({
   bodyType: z.enum(['none', 'json', 'text']).default('none'),
   authType: z.enum(['none', 'bearer', 'basic']).default('none'),
   authCredentials: z.string().default(''),
-  intervalSeconds: z.number().int().min(60).max(3600),
+  intervalSeconds: z.number().int().min(60).max(MAX_MONITOR_INTERVAL_SECONDS),
   timeoutMs: z.number().int().min(1000).max(60000).default(30000),
   expectedStatusCodes: z.array(z.union([z.number(), z.string()])).default(['200-299']),
   assertions: z
@@ -156,12 +157,12 @@ export async function createMonitor(
     const plan = req.userPlan || 'free';
     const limits = PLAN_LIMITS[plan];
 
-    // Enforce interval minimum
-    if (data.intervalSeconds < limits.minIntervalSeconds) {
+    if (!isValidMonitorInterval(data.intervalSeconds, plan)) {
+      const minimum = minimumMonitorInterval(plan);
       res.status(400).json({
         error: {
           code: 'PLAN_LIMIT',
-          message: `Your plan requires a minimum interval of ${limits.minIntervalSeconds}s.`,
+          message: `Your plan requires an interval between ${minimum} seconds and ${MAX_MONITOR_INTERVAL_SECONDS} seconds.`,
         },
       });
       return;
@@ -234,11 +235,12 @@ export async function updateMonitor(
     const plan = req.userPlan || 'free';
     const limits = PLAN_LIMITS[plan];
 
-    if (data.intervalSeconds < limits.minIntervalSeconds) {
+    if (!isValidMonitorInterval(data.intervalSeconds, plan)) {
+      const minimum = minimumMonitorInterval(plan);
       res.status(400).json({
         error: {
           code: 'PLAN_LIMIT',
-          message: `Your plan requires a minimum interval of ${limits.minIntervalSeconds}s.`,
+          message: `Your plan requires an interval between ${minimum} seconds and ${MAX_MONITOR_INTERVAL_SECONDS} seconds.`,
         },
       });
       return;
@@ -351,8 +353,14 @@ export async function resumeMonitor(
       return;
     }
 
-    const minimumInterval = req.userPlan === 'pro' ? PLAN_LIMITS.pro.minIntervalSeconds : PLAN_LIMITS.free.minIntervalSeconds;
-    if (monitor.intervalSeconds < minimumInterval) monitor.intervalSeconds = minimumInterval;
+    const plan = req.userPlan || 'free';
+    if (!isValidMonitorInterval(monitor.intervalSeconds, plan)) {
+      throw createError(
+        'This monitor interval is not available on your current plan. Edit the monitor and choose an allowed interval.',
+        403,
+        'PLAN_LIMIT',
+      );
+    }
     monitor.status = 'pending';
     await monitor.save();
     await schedulerService.scheduleMonitor(monitor);

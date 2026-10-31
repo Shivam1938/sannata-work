@@ -64,7 +64,8 @@ const monitorSchema = new Schema<IMonitor>(
     authCredentials: { type: String, default: '' }, // stored encrypted
     intervalSeconds: {
       type: Number,
-      enum: [60, 300, 600, 1800, 3600],
+      min: 60,
+      max: 86400,
       default: 300,
     },
     timeoutMs: { type: Number, default: 30000, max: 60000 },

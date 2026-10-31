@@ -11,8 +11,8 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import { User } from '../models/User.js';
-import { Monitor } from '../models/Monitor.js';
+import { User } from './models/User.js';
+import { Monitor } from './models/Monitor.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/sannata';

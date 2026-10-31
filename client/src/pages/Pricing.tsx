@@ -13,7 +13,7 @@ const features: Feature[] = [
   { label: 'Check interval', free: true, pro: true },
   { label: 'Check history', free: true, pro: true },
   { label: 'Email & Telegram outage alerts', free: true, pro: true },
-  { label: 'AI incident analysis', free: true, pro: true },
+  { label: 'AI incident analysis (1 free report)', free: false, pro: true },
   { label: 'Public status page', free: false, pro: true },
   { label: 'Custom status page branding', free: false, pro: true },
   { label: 'Priority monitoring checks', free: false, pro: true },
@@ -26,7 +26,6 @@ export default function Pricing() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const isPro = user?.plan === 'pro' && (!user.proExpiresAt || new Date(user.proExpiresAt).getTime() > Date.now());
-  const freeAiUsed = Number((user as any)?.aiAnalysesUsed || 0) >= 1;
 
   const upgrade = async () => {
     if (!window.confirm('Activate Sannata Pro for 30 days? This is a demo upgrade; no payment will be taken.')) return;
@@ -47,19 +46,19 @@ export default function Pricing() {
     <div className="pricing-grid">
       <div className="panel price-card"><span className="eyebrow">FOR PERSONAL PROJECTS</span><h2>Free</h2><div className="price">₹0 <small>/ forever</small></div><p className="muted">Start monitoring your APIs with the essentials.</p>
         <ul className="plan-feature-list">
-          <li><Check/>5 monitors</li><li><Check/>5-minute minimum checks</li><li><Check/>7-day check history</li><li><Check/>Email & Telegram alerts</li><li><Check/>{freeAiUsed ? '1 AI analysis used' : '1 AI incident analysis (one-time)'}</li>
+          <li><Check/>5 monitors</li><li><Check/>5-minute minimum checks</li><li><Check/>7-day check history</li><li><Check/>Email & Telegram alerts</li><li className="unavailable"><X/>AI Analysis <small className="feature-note">Only 1 available on Free plan</small></li>
           <li className="unavailable"><X/>Public status page</li><li className="unavailable"><X/>Custom status page branding</li><li className="unavailable"><X/>Priority monitoring checks</li><li><Check/>30 request tester calls/minute</li>
         </ul>
         {!isPro ? <button className="secondary-button full" disabled>Your current plan</button> : <div className="plan-note">Free plan features are included with Pro.</div>}
       </div>
       <div className="panel price-card featured"><span className="popular-tag"><Sparkles size={13}/> BUILT FOR GROWING APIS</span><span className="eyebrow">FOR DEVELOPERS & TEAMS</span><h2>Pro</h2><div className="price">₹199 <small>/ month</small></div><p className="muted">More coverage, deeper insight, and a public face for your uptime.</p>
         <ul className="plan-feature-list">
-          <li><Check/>50 monitors</li><li><Check/>1-minute minimum checks</li><li><Check/>30-day check history</li><li><Check/>Email & Telegram alerts</li><li><Check/>Unlimited AI incident analysis</li><li><Check/>Public status page with shareable URL</li><li><Check/>Custom status page title & branding</li><li><Check/>Priority monitoring checks</li><li><Check/>120 request tester calls/minute</li>
+          <li><Check/>50 monitors</li><li><Check/>Custom monitoring interval (1 minute–1 day)</li><li><Check/>30-day check history</li><li><Check/>Email & Telegram alerts</li><li><Check/>AI Analysis <small className="feature-note">Unlimited, with abuse protection</small></li><li><Check/>Public status page with shareable URL</li><li><Check/>Custom status page title & branding</li><li><Check/>Priority monitoring checks</li><li><Check/>120 request tester calls/minute</li>
         </ul>
         {isPro ? <button className="secondary-button full" disabled><ShieldCheck size={15}/> Your Pro plan is active</button> : <button className="primary-button full" onClick={upgrade} disabled={busy}>{busy?'Activating…':'Upgrade to Pro'} <ArrowUpRight size={15}/></button>}
         <small className="demo-note">Demo upgrade only. No payment taken when DEMO_MODE=true. Access lasts 30 days.</small>
       </div>
     </div>
-    <section className="panel plan-comparison"><div><p className="eyebrow">AT A GLANCE</p><h3>What changes with Pro?</h3><p className="muted">A clear comparison—no hidden feature names.</p></div><div className="comparison-table"><div className="comparison-head"><span>Feature</span><b>Free</b><b>Pro</b></div>{features.map((f)=><div className="comparison-row" key={f.label}><span>{f.label}</span><span>{f.free?<Check className="feature-yes"/>:<X className="feature-no"/>}</span><span>{f.pro?<Check className="feature-yes"/>:<X className="feature-no"/>}</span></div>)}</div></section>
+    <section className="panel plan-comparison"><div><p className="eyebrow">AT A GLANCE</p><h3>What changes with Pro?</h3><p className="muted">A clear comparison—no hidden feature names.</p></div><div className="comparison-table"><div className="comparison-head"><span>Feature</span><b>Free</b><b>Pro</b></div>{features.map((f)=><div className="comparison-row" key={f.label}><span>{f.label}{f.label.startsWith('AI incident analysis')&&<small className="feature-note">Only 1 available on Free plan; Pro includes unlimited analyses.</small>}</span><span>{f.free?<Check className="feature-yes"/>:<X className="feature-no"/>}</span><span>{f.pro?<Check className="feature-yes"/>:<X className="feature-no"/>}</span></div>)}</div></section>
   </>;
 }

@@ -1,11 +1,11 @@
 import TelegramBot from 'node-telegram-bot-api';
 import nodemailer from 'nodemailer';
-import { config } from '../config/index.js';
-import { logger } from '../config/logger.js';
-import { User } from '../models/User.js';
-import { Incident } from '../models/Incident.js';
-import type { IMonitor } from '../models/Monitor.js';
-import type { IIncident } from '../models/Incident.js';
+import { config } from './config/index.js';
+import { logger } from './config/logger.js';
+import { User } from './models/User.js';
+import { Incident } from './models/Incident.js';
+import type { IMonitor } from './models/Monitor.js';
+import type { IIncident } from './models/Incident.js';
 
 let bot: TelegramBot | null = null;
 
@@ -78,7 +78,7 @@ async function handleStatusCommand(bot: TelegramBot, chatId: number) {
     return;
   }
 
-  const { Monitor } = await import('../models/Monitor.js');
+  const { Monitor } = await import('./models/Monitor.js');
   const monitors = await Monitor.find({ userId: user._id }).select('name status url').lean();
 
   if (monitors.length === 0) {
@@ -97,7 +97,7 @@ async function handlePauseCommand(bot: TelegramBot, chatId: number, name: string
   const user = await User.findOne({ telegramChatId: String(chatId) });
   if (!user) return;
 
-  const { Monitor } = await import('../models/Monitor.js');
+  const { Monitor } = await import('./models/Monitor.js');
   const monitor = await Monitor.findOne({ userId: user._id, name: { $regex: new RegExp(name, 'i') } });
 
   if (!monitor) {
@@ -109,7 +109,7 @@ async function handlePauseCommand(bot: TelegramBot, chatId: number, name: string
   await monitor.save();
 
   // Remove BullMQ job
-  const { schedulerService } = await import('../queues/scheduler.js');
+  const { schedulerService } = await import('./queues/scheduler.js');
   await schedulerService.removeMonitorJob(monitor._id.toString());
 
   await bot.sendMessage(chatId, `⏸️ Monitor "${monitor.name}" paused.`);
@@ -119,7 +119,7 @@ async function handleResumeCommand(bot: TelegramBot, chatId: number, name: strin
   const user = await User.findOne({ telegramChatId: String(chatId) });
   if (!user) return;
 
-  const { Monitor } = await import('../models/Monitor.js');
+  const { Monitor } = await import('./models/Monitor.js');
   const monitor = await Monitor.findOne({ userId: user._id, name: { $regex: new RegExp(name, 'i') } });
 
   if (!monitor) {
@@ -130,7 +130,7 @@ async function handleResumeCommand(bot: TelegramBot, chatId: number, name: strin
   monitor.status = 'pending';
   await monitor.save();
 
-  const { schedulerService } = await import('../queues/scheduler.js');
+  const { schedulerService } = await import('./queues/scheduler.js');
   await schedulerService.scheduleMonitor(monitor);
 
   await bot.sendMessage(chatId, `▶️ Monitor "${monitor.name}" resumed.`);

@@ -11,12 +11,13 @@ import { performCheck, saveCheckResult, reclassifyAsColdStartIfNeeded } from '..
 import { handleSuccessfulCheck, handleFailedCheck } from '../services/incident.js';
 import { schedulerService, MONITOR_QUEUE_NAME, CLEANUP_QUEUE_NAME } from '../queues/scheduler.js';
 import { User } from '../models/User.js';
+import { isScheduledCheckDue, isValidMonitorInterval } from '../services/monitoring-interval.js';
 
 const WORKER_HEALTH_PORT = config.port + 1;
 
 async function processMonitorJob(monitorId: string): Promise<void> {
   const monitor = await Monitor.findById(monitorId).select(
-    '+consecutiveFailures name url method headers body bodyType authType authCredentials intervalSeconds timeoutMs expectedStatusCodes assertions coldStartAware keepAliveEnabled failureThreshold status userId currentIncidentId'
+    '+consecutiveFailures name url method headers body bodyType authType authCredentials intervalSeconds timeoutMs expectedStatusCodes assertions coldStartAware keepAliveEnabled failureThreshold status userId currentIncidentId lastCheckedAt'
   );
 
   if (!monitor) {
@@ -26,6 +27,26 @@ async function processMonitorJob(monitorId: string): Promise<void> {
 
   if (monitor.status === 'paused') {
     logger.debug({ monitorId }, 'Monitor paused, skipping job');
+    return;
+  }
+
+  const owner = await User.findById(monitor.userId).select('plan proExpiresAt');
+  const proActive = owner?.plan === 'pro' && (!owner.proExpiresAt || owner.proExpiresAt.getTime() > Date.now());
+  const plan = proActive ? 'pro' : 'free';
+  if (!owner || !isValidMonitorInterval(monitor.intervalSeconds, plan)) {
+    await schedulerService.removeMonitorJob(monitorId);
+    logger.warn(
+      { monitorId, intervalSeconds: monitor.intervalSeconds, plan },
+      'Skipped scheduled check because its interval is not allowed on the current plan',
+    );
+    return;
+  }
+
+  if (!isScheduledCheckDue(monitor.lastCheckedAt, monitor.intervalSeconds)) {
+    logger.info(
+      { monitorId, intervalSeconds: monitor.intervalSeconds, lastCheckedAt: monitor.lastCheckedAt },
+      'Skipping scheduled check because the configured interval has not elapsed',
+    );
     return;
   }
 

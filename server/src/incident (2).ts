@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { authenticate } from '../middleware/auth.js';
-import { validate } from '../middleware/validate.js';
-import { signup, login, logout, me, signupSchema, loginSchema } from '../controllers/auth.controller.js';
-import * as monitors from '../controllers/monitors.controller.js';
-import * as system from '../controllers/system.controller.js';
+import { authenticate } from './middleware/auth.js';
+import { validate } from './middleware/validate.js';
+import { signup, login, logout, me, signupSchema, loginSchema } from './controllers/auth.controller.js';
+import * as monitors from './controllers/monitors.controller.js';
+import * as system from './controllers/system.controller.js';
 
 const router=Router();
 const authLimiter=rateLimit({windowMs:15*60*1000,max:20,standardHeaders:true,legacyHeaders:false,message:{error:{code:'AUTH_RATE_LIMIT',message:'Too many authentication attempts. Try again later.'}}});

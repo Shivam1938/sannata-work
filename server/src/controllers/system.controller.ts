@@ -14,6 +14,9 @@ import { config } from '../config/index.js';
 import { createError } from '../middleware/errorHandler.js';
 import { schedulerService } from '../queues/scheduler.js';
 import type { AuthRequest } from '../middleware/auth.js';
+import { generateAiSummary } from '../services/ai.js';
+import { TelemetryEvent } from '../models/TelemetryEvent.js';
+import { getMonitoringAnalytics } from '../services/analytics.js';
 
 const id = (v: string) => mongoose.isValidObjectId(v);
 const safeUser = (u: any) => ({ id: u._id, name: u.name, email: u.email, plan: u.plan, subscriptionStartedAt: u.subscriptionStartedAt || null, proExpiresAt: u.proExpiresAt || null, alertEmail: u.alertEmail, alertPreferences: u.alertPreferences, telegramConnected: Boolean(u.telegramChatId), statusPageSlug: u.statusPageSlug, statusPageEnabled: u.statusPageEnabled, statusPageTitle: u.statusPageTitle, aiAnalysesUsed: u.aiAnalysesUsed || 0, integrations: { telegramConfigured: Boolean(config.telegram.botToken && config.telegram.botUsername), emailConfigured: Boolean(config.smtp.host && config.smtp.user && config.smtp.pass), aiConfigured: Boolean(config.ai.apiKey) } });
@@ -71,8 +74,79 @@ export async function overview(req: AuthRequest, res: Response, next: NextFuncti
     });
   } catch (e) { next(e); }
 }
+export async function analytics(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const allowed = req.userPlan === 'pro' ? ['24h', '7d', '30d'] : ['24h', '7d'];
+    const requested = String(req.query.range || '24h');
+    if (!allowed.includes(requested)) throw createError('This analytics range is not available on your plan.', 403, 'PLAN_REQUIRED');
+    const range = requested as '24h' | '7d' | '30d';
+    const data = await getMonitoringAnalytics(req.userId!, range);
+    res.json(data);
+  } catch (e) { next(e); }
+}
+
+
 export async function listIncidents(req: AuthRequest,res:Response,next:NextFunction){try{const page=Math.max(1,Number(req.query.page)||1);const limit=Math.min(100,Math.max(1,Number(req.query.limit)||20));const filter:any={userId:req.userId};if(req.query.status)filter.status=req.query.status;if(req.query.monitorId&&id(String(req.query.monitorId)))filter.monitorId=req.query.monitorId;const [incidents,total]=await Promise.all([Incident.find(filter).sort({startedAt:-1}).skip((page-1)*limit).limit(limit).lean(),Incident.countDocuments(filter)]);res.json({incidents,pagination:{page,limit,total,pages:Math.ceil(total/limit)}})}catch(e){next(e)}}
 export async function getIncident(req:AuthRequest,res:Response,next:NextFunction){try{if(!id(req.params.id))throw createError('Invalid incident id',400,'INVALID_ID');const incident=await Incident.findOne({_id:req.params.id,userId:req.userId}).lean();if(!incident)throw createError('Incident not found',404,'NOT_FOUND');res.json({incident})}catch(e){next(e)}}
+export async function analyzeIncident(req: AuthRequest, res: Response, next: NextFunction) {
+  let reservedFreeQuota = false;
+  try {
+    if (!id(req.params.id)) throw createError('Invalid incident id', 400, 'INVALID_ID');
+    const [incident, user] = await Promise.all([
+      Incident.findOne({ _id: req.params.id, userId: req.userId }),
+      User.findById(req.userId).select('plan proExpiresAt aiAnalysesUsed'),
+    ]);
+    if (!incident) throw createError('Incident not found', 404, 'NOT_FOUND');
+    if (!user) throw createError('User not found', 404, 'NOT_FOUND');
+
+    const isPro = user.plan === 'pro' && (!user.proExpiresAt || user.proExpiresAt.getTime() > Date.now());
+    if (!isPro) {
+      const reservation = await User.findOneAndUpdate(
+        {
+          _id: user._id,
+          plan: 'free',
+          $or: [{ aiAnalysesUsed: { $lt: 1 } }, { aiAnalysesUsed: { $exists: false } }],
+        },
+        { $inc: { aiAnalysesUsed: 1 } },
+        { new: true },
+      ).select('_id');
+      if (!reservation) {
+        throw createError("You've used your free AI analysis. Buy Pro for more analysis.", 403, 'AI_QUOTA_EXHAUSTED');
+      }
+      reservedFreeQuota = true;
+    }
+
+    const monitor = await Monitor.findOne({ _id: incident.monitorId, userId: req.userId });
+    if (!monitor) throw createError('The incident monitor is no longer available.', 404, 'MONITOR_NOT_FOUND');
+    const checks = await CheckResult.find({
+      monitorId: monitor._id,
+      checkedAt: { $gte: new Date(incident.startedAt.getTime() - 24 * 60 * 60 * 1000) },
+    }).select('success classification statusCode responseTimeMs errorType errorMessage attempts checkedAt')
+      .sort({ checkedAt: -1 })
+      .limit(50)
+      .lean();
+
+    const analysis = await generateAiSummary(
+      incident.status === 'resolved' ? 'resolved' : 'open',
+      monitor,
+      incident,
+      checks,
+    );
+    if (incident.status === 'resolved') incident.aiSummaryResolved = analysis;
+    else incident.aiSummary = analysis;
+    await incident.save();
+    res.json({
+      analysis,
+      aiAnalysesUsed: reservedFreeQuota ? (user.aiAnalysesUsed || 0) + 1 : user.aiAnalysesUsed || 0,
+      remainingAnalyses: isPro ? null : Math.max(0, 1 - ((user.aiAnalysesUsed || 0) + 1)),
+    });
+  } catch (error) {
+    if (reservedFreeQuota) {
+      await User.updateOne({ _id: req.userId, aiAnalysesUsed: { $gt: 0 } }, { $inc: { aiAnalysesUsed: -1 } });
+    }
+    next(error);
+  }
+}
 export async function sendTesterRequest(req:AuthRequest,res:Response,next:NextFunction){try{
  const schema=z.object({method:z.enum(['GET','POST','PUT','PATCH','DELETE','HEAD']).default('GET'),url:z.string().url(),headers:z.array(z.object({key:z.string(),value:z.string(),enabled:z.boolean().default(true)})).default([]),body:z.string().optional(),timeoutMs:z.number().int().min(1000).max(30000).default(15000),bodyType:z.enum(['none','json','text']).default('none')});const data=schema.parse(req.body);
  await checkSsrf(data.url);
@@ -94,6 +168,6 @@ export async function testAlert(req:AuthRequest,res:Response,next:NextFunction){
 export async function linkTelegram(req:AuthRequest,res:Response,next:NextFunction){try{if(!config.telegram.botUsername)throw createError('Telegram bot is not configured',503,'TELEGRAM_NOT_CONFIGURED');const code=Math.random().toString(36).slice(2,12);await User.findByIdAndUpdate(req.userId,{telegramLinkCode:code,telegramLinkCodeExpiry:new Date(Date.now()+15*60*1000)});res.json({url:`https://t.me/${config.telegram.botUsername}?start=${code}`,expiresInMinutes:15})}catch(e){next(e)}}
 export async function unlinkTelegram(req:AuthRequest,res:Response,next:NextFunction){try{await User.findByIdAndUpdate(req.userId,{$set:{telegramChatId:null,telegramLinkCode:null,telegramLinkCodeExpiry:null}});res.json({success:true})}catch(e){next(e)}}
 export async function telegramWebhook(req:any,res:Response,next:NextFunction){try{if(config.telegram.mode!=='webhook')throw createError('Telegram webhook mode is not enabled',409,'WEBHOOK_MODE_DISABLED');const bot=getTelegramBot();if(!bot)throw createError('Telegram bot is not configured',503,'TELEGRAM_NOT_CONFIGURED');await bot.processUpdate(req.body);res.status(200).json({ok:true,received:true})}catch(e){next(e)}}
-export async function deleteAccount(req:AuthRequest,res:Response,next:NextFunction){try{await Promise.all([Monitor.deleteMany({userId:req.userId}),CheckResult.deleteMany({userId:req.userId}),Incident.deleteMany({userId:req.userId}),SavedRequest.deleteMany({userId:req.userId}),User.deleteOne({_id:req.userId})]);res.clearCookie('token');res.json({success:true})}catch(e){next(e)}}
+export async function deleteAccount(req:AuthRequest,res:Response,next:NextFunction){try{await Promise.all([Monitor.deleteMany({userId:req.userId}),CheckResult.deleteMany({userId:req.userId}),Incident.deleteMany({userId:req.userId}),SavedRequest.deleteMany({userId:req.userId}),TelemetryEvent.deleteMany({userId:req.userId}),User.deleteOne({_id:req.userId})]);res.clearCookie('token');res.json({success:true})}catch(e){next(e)}}
 
 export async function updatePassword(req:AuthRequest,res:Response,next:NextFunction){try{const data=z.object({currentPassword:z.string().min(1),newPassword:z.string().min(8).max(128)}).parse(req.body);const user=await User.findById(req.userId).select('+passwordHash');if(!user)throw createError('User not found',404,'NOT_FOUND');if(!(await bcrypt.compare(data.currentPassword,user.passwordHash)))throw createError('Current password is incorrect',400,'INVALID_PASSWORD');user.passwordHash=await bcrypt.hash(data.newPassword,12);await user.save();res.json({success:true,message:'Password updated'})}catch(e){next(e)}}

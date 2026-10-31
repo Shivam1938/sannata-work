@@ -1,122 +1,58 @@
-import { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, BarChart3, CheckCircle2, Clock3, RefreshCw, Server, Zap } from 'lucide-react';
-import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from 'recharts';
+import { useCallback, useEffect, useState } from 'react';
+import { Activity, AlertTriangle, BarChart3, CheckCircle2, Clock3, Globe2, RefreshCw, Server, Zap } from 'lucide-react';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, message } from '../api';
 import { useApp } from '../App';
+import Realtime from './Realtime';
 
+type View = 'analytics' | 'realtime' | 'performance' | 'endpoints' | 'errors';
 type Range = '24h' | '7d' | '30d';
-type Tab = 'analytics' | 'realtime' | 'performance' | 'endpoints' | 'errors';
-const COLORS = ['#84cc16', '#38bdf8', '#f59e0b', '#f87171', '#94a3b8'];
-
-export default function Analytics({ initialTab = 'analytics' }: { initialTab?: Tab }) {
-  const { user } = useApp();
-  const [range, setRange] = useState<Range>('24h');
-  const [tab, setTab] = useState<Tab>(initialTab);
-  useEffect(() => { setTab(initialTab); }, [initialTab]);
-  const [data, setData] = useState<any>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const load = async () => {
-    setLoading(true);
-    try {
-      const response = await api.get('/api/analytics', { params: { range } });
-      setData(response.data);
-      setError('');
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setLoading(false);
-    }
-  };
-  useEffect(() => { load(); }, [range]);
-  const summary = data?.summary || {};
-  const isPro = user?.plan === 'pro';
-  const rangeOptions: Range[] = isPro ? ['24h', '7d', '30d'] : ['24h', '7d'];
-
-  return <>
-    <div className="page-heading">
-      <div><p className="eyebrow">OBSERVABILITY</p><h1>Analytics</h1><p className="muted">Monitoring activity and endpoint performance from your saved checks.</p></div>
-      <button className="secondary-button" onClick={load} disabled={loading}><RefreshCw size={15} className={loading ? 'spin' : ''}/> Refresh data</button>
-    </div>
-    {error && <div className="error-banner">{error}</div>}
-    <div className="panel-heading analytics-toolbar">
-      <div className="filter-tabs">{(['analytics', 'realtime', 'performance', 'endpoints', 'errors'] as Tab[]).map((item) =>
-        <button key={item} className={tab === item ? 'selected' : ''} onClick={() => setTab(item)}>{item[0].toUpperCase() + item.slice(1)}</button>
-      )}</div>
-      <div className="filter-tabs">{rangeOptions.map((item) =>
-        <button key={item} className={range === item ? 'selected' : ''} onClick={() => setRange(item)}>{item}</button>
-      )}</div>
-    </div>
-    <div className="metric-grid">
-      {[
-        [BarChart3, 'Total checks', summary.totalChecks ?? '—', 'Monitoring attempts in selected range'],
-        [Clock3, 'Average latency', summary.avgResponseTimeMs == null ? '—' : `${summary.avgResponseTimeMs} ms`, 'Successful checks, cold starts excluded'],
-        [AlertTriangle, 'Error rate', summary.errorRate == null ? '—' : `${summary.errorRate}%`, 'Failed monitoring attempts'],
-        [CheckCircle2, 'Success rate', summary.successRate == null ? '—' : `${summary.successRate}%`, 'Successful monitoring attempts'],
-        [Server, 'Unique services', summary.uniqueServices ?? '—', 'Distinct hostnames being monitored'],
-        [Zap, 'Endpoints', summary.uniqueEndpoints ?? '—', 'Configured monitors'],
-      ].map(([Icon, label, value, caption]: any) => <div className="metric-card" key={label}>
-        <div className="metric-icon green"><Icon size={18}/></div><span>{label}</span><strong>{value}</strong><small>{caption}</small>
-      </div>)}
-    </div>
-
-    {(tab === 'analytics' || tab === 'performance') && <div className="analytics-chart-grid">
-      <section className="panel chart-panel">
-        <div className="panel-heading"><div><h3>Monitoring activity</h3><p>Checks recorded over time · not raw API traffic</p></div></div>
-        <div className="chart-area analytics-chart"><ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data?.traffic || []}>
-            <defs>
-              <linearGradient id="checkSuccess" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#84cc16" stopOpacity={0.28}/><stop offset="95%" stopColor="#84cc16" stopOpacity={0}/></linearGradient>
-              <linearGradient id="checkFailed" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f87171" stopOpacity={0.2}/><stop offset="95%" stopColor="#f87171" stopOpacity={0}/></linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--line)"/>
-            <XAxis dataKey="label" tick={{fill:'var(--muted)',fontSize:11}}/>
-            <YAxis allowDecimals={false} tick={{fill:'var(--muted)',fontSize:11}}/>
-            <Tooltip contentStyle={{background:'var(--panel)',border:'1px solid var(--line)',borderRadius:10}}/>
-            <Area type="monotone" dataKey="success" name="Successful checks" stroke="#84cc16" fill="url(#checkSuccess)"/>
-            <Area type="monotone" dataKey="failed" name="Failed checks" stroke="#f87171" fill="url(#checkFailed)"/>
-          </AreaChart>
-        </ResponsiveContainer></div>
-      </section>
-      <section className="panel chart-panel">
-        <div className="panel-heading"><div><h3>Status code distribution</h3><p>HTTP response groups across monitoring checks</p></div></div>
-        <div className="chart-area analytics-chart">
-          {data?.statusDistribution?.length ? <ResponsiveContainer width="100%" height="100%">
-            <PieChart><Pie data={data.statusDistribution} dataKey="value" nameKey="name" innerRadius="54%" outerRadius="78%" paddingAngle={3}>
-              {data.statusDistribution.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]}/>)}
-            </Pie><Tooltip contentStyle={{background:'var(--panel)',border:'1px solid var(--line)',borderRadius:10}}/></PieChart>
-          </ResponsiveContainer> : <div className="chart-empty">No status-code data yet. Run a manual check or wait for the next scheduled check.</div>}
-        </div>
-        <div className="analytics-legend">{(data?.statusDistribution || []).map((item: any, i: number) => <span key={item.name}><i style={{background:COLORS[i % COLORS.length]}}/>{item.name}: {item.value}</span>)}</div>
-      </section>
-    </div>}
-
-    {(tab === 'analytics' || tab === 'endpoints' || tab === 'performance') && <section className="panel table-panel analytics-table">
-      <div className="panel-heading"><div><h3>{tab === 'performance' ? 'Endpoint performance' : 'Top endpoints'}</h3><p>Ranked by recorded monitoring checks in this range</p></div></div>
-      <div className="table-head analytics-endpoint-head"><span>ENDPOINT</span><span>METHOD</span><span>CHECKS</span><span>AVG LATENCY</span><span>ERROR RATE</span></div>
-      {(data?.topEndpoints || []).length ? data.topEndpoints.map((m: any) => <div className="table-row analytics-endpoint-row" key={m.monitorId}>
-        <span className="analytics-endpoint-name"><b>{m.name}</b><small>{m.url}</small></span><span>{m.method}</span><span>{m.hits}</span><span>{m.avgLatencyMs == null ? '—' : `${m.avgLatencyMs} ms`}</span><span className={m.errorRate > 0 ? 'text-danger' : 'text-success'}>{m.errorRate}%</span>
-      </div>) : <div className="empty-small">No checks recorded in this range.</div>}
-    </section>}
-
-    {tab === 'realtime' && <section className="panel table-panel analytics-table">
-      <div className="panel-heading"><div><h3>Recent monitoring checks</h3><p>Latest saved endpoint checks · refresh to fetch the newest results</p></div><button className="subtle-button" onClick={load} disabled={loading}><RefreshCw size={14}/> Refresh</button></div>
-      <div className="table-head analytics-error-head"><span>ENDPOINT</span><span>RESULT</span><span>STATUS</span><span>RESPONSE</span><span>CHECKED AT</span></div>
-      {(data?.recentChecks || []).length ? data.recentChecks.map((c: any, i: number) => <div className="table-row analytics-error-row" key={`${c.checkedAt}-${i}`}>
-        <span className="analytics-endpoint-name"><b>{c.monitorName}</b><small>{c.url}</small></span><span className={c.success ? 'text-success' : 'text-danger'}>{c.success ? 'Success' : 'Failed'}</span><span>{c.statusCode ?? '—'}</span><span>{c.responseTimeMs == null ? '—' : `${c.responseTimeMs} ms`}</span><span>{new Date(c.checkedAt).toLocaleString()}</span>
-      </div>) : <div className="empty-small">No checks recorded yet. Run a manual check from a monitor's detail page.</div>}
-    </section>}
-
-    {(tab === 'analytics' || tab === 'errors') && <section className="panel table-panel analytics-table">
-      <div className="panel-heading"><div><h3>Recent errors</h3><p>Latest failed monitoring attempts</p></div></div>
-      <div className="table-head analytics-error-head"><span>ENDPOINT</span><span>ERROR</span><span>STATUS</span><span>RESPONSE</span><span>CHECKED AT</span></div>
-      {(data?.errors || []).length ? data.errors.map((e: any, i: number) => <div className="table-row analytics-error-row" key={`${e.checkedAt}-${i}`}>
-        <span className="analytics-endpoint-name"><b>{e.monitorName}</b><small>{e.url}</small></span><span>{e.errorType || 'HTTP failure'}</span><span>{e.statusCode ?? '—'}</span><span>{e.responseTimeMs == null ? '—' : `${e.responseTimeMs} ms`}</span><span>{new Date(e.checkedAt).toLocaleString()}</span>
-      </div>) : <div className="empty-small">No failed checks in this range. Nice and quiet.</div>}
-    </section>}
-    <p className="muted analytics-footnote"><Activity size={13}/> These charts use Sannata's monitor-check history. They do not represent every request made by users to the monitored APIs.</p>
-  </>;
+type AnalyticsData = { summary: { totalChecks:number; failedChecks:number; latencySamples:number; avgResponseTimeMs:number|null; p50ResponseTimeMs:number|null; p95ResponseTimeMs:number|null; p99ResponseTimeMs:number|null; maxResponseTimeMs:number|null; errorRate:number|null; successRate:number|null; uniqueServices:number; uniqueEndpoints:number; percentileMethod:'approximate' }; traffic:any[]; statusDistribution:any[]; topEndpoints:any[]; errors:any[]; errorGroups:any[] };
+const palette = ['#84cc16','#38bdf8','#f59e0b','#f87171','#94a3b8','#a78bfa'];
+function troubleshootingTip(errorType:string|null,statusCode:number|null) {
+ if(errorType==='timeout')return 'Compare response duration with the monitor timeout; inspect service load and dependency latency.';
+ if(errorType==='dns')return 'Verify the configured hostname resolves from an external network and check its DNS records.';
+ if(errorType==='connection_refused')return 'Confirm the service is listening on the configured host and port and is accepting connections.';
+ if(errorType==='tls')return 'Check certificate validity, certificate chain and supported TLS configuration.';
+ if(errorType==='assertion_failed')return 'Compare the current response body with the monitor assertion and expected API contract.';
+ if(errorType==='bad_status'&&statusCode!=null)return `Inspect the endpoint's response for HTTP ${statusCode} and verify the configured expected status range.`;
+ if(statusCode!=null&&statusCode>=500)return `Investigate the server-side response for HTTP ${statusCode}; correlate it with application logs at the recorded time.`;
+ if(statusCode!=null&&statusCode>=400)return `Verify the request path, required authentication and parameters for HTTP ${statusCode}.`;
+ return 'Review the endpoint health and the corresponding application logs at the recorded time; this check does not include server logs.';
 }
+const headings: Record<Exclude<View,'realtime'>,{eyebrow:string;title:string;description:string}> = {
+ analytics:{eyebrow:'OBSERVABILITY / OVERVIEW',title:'Analytics',description:'Historical monitoring insights calculated from saved endpoint checks.'},
+ performance:{eyebrow:'LATENCY & RELIABILITY',title:'Performance',description:'Response-time behaviour and slow endpoints based on successful monitor checks.'},
+ endpoints:{eyebrow:'INVENTORY',title:'Endpoints',description:'Your configured monitored endpoints and their recorded check activity.'},
+ errors:{eyebrow:'TROUBLESHOOTING',title:'Errors',description:'Failed monitoring attempts, failure categories and the affected endpoints.'},
+};
+export default function Analytics({view}:{view:View}) {
+ if (view === 'realtime') return <Realtime/>;
+ return <HistoricalAnalytics view={view}/>;
+}
+
+function HistoricalAnalytics({view}:{view:Exclude<View,'realtime'>}) {
+ const {user}=useApp(); const [range,setRange]=useState<Range>('24h'); const [errorFilter,setErrorFilter]=useState('all'); const [data,setData]=useState<AnalyticsData|null>(null); const [loading,setLoading]=useState(true); const [refreshing,setRefreshing]=useState(false); const [error,setError]=useState('');
+ const isPro=user?.plan==='pro'; const allowedRanges:Range[]=isPro?['24h','7d','30d']:['24h','7d'];
+ const load=useCallback(async (quiet=false)=>{ quiet?setRefreshing(true):setLoading(true); try { const response=await api.get('/api/analytics',{params:{range}}); setData(response.data); setError(''); } catch(e) { setError(message(e)); } finally {setLoading(false);setRefreshing(false);} },[range]);
+ useEffect(()=>{load();},[load]);
+ const d=data; const summary=d?.summary;
+ const title=headings[view];
+ const metric=(label:string,value:string|number,caption:string,Icon:any)=> <div className="metric-card" key={label}><div className="metric-icon green"><Icon size={18}/></div><span>{label}</span><strong>{value}</strong><small>{caption}</small></div>;
+ return <>
+  <div className="page-heading analytics-page-heading"><div><p className="eyebrow">{title.eyebrow}</p><h1>{title.title}</h1><p className="muted">{title.description}</p></div><div className="analytics-actions"><div className="filter-tabs">{allowedRanges.map(r=><button key={r} className={range===r?'selected':''} onClick={()=>setRange(r)}>{r}</button>)}</div><button className="secondary-button" onClick={()=>load(true)} disabled={refreshing}><RefreshCw size={14} className={refreshing?'spin':''}/> Refresh</button></div></div>
+  {error&&<div className="error-banner">{error}</div>}{loading&&!d?<div className="panel analytics-empty">Loading monitoring data…</div>:!d?<div className="panel analytics-empty">No analytics data is available yet.</div>:<>
+  {summary?.totalChecks===0&&<div className="analytics-empty-inline">No saved monitor checks were recorded in this time range. Check metrics and traffic charts below will remain empty until monitoring results exist.</div>}
+  {view==='analytics'&&<>
+   <div className="metric-grid analytics-metrics">{metric('Total checks',summary?.totalChecks??0,'Saved monitor attempts',BarChart3)}{metric('Success rate',summary?.successRate==null?'—':`${summary.successRate}%`,'Checks that met expected status',CheckCircle2)}{metric('Failure rate',summary?.errorRate==null?'—':`${summary.errorRate}%`,'Failed monitoring attempts',AlertTriangle)}{metric('Unique services',summary?.uniqueServices??0,'Distinct hostnames monitored',Server)}{metric('Endpoints',summary?.uniqueEndpoints??0,'Configured monitors',Globe2)}{metric('Average latency',summary?.avgResponseTimeMs==null?'—':`${summary.avgResponseTimeMs} ms`,'Successful checks; cold starts excluded',Clock3)}</div>
+   <div className="analytics-two-col"><section className="panel analytics-panel"><div className="panel-heading"><div><h3>Check volume over time</h3><p>Successful and failed monitor checks · not customer API traffic</p></div></div><div className="analytics-chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={d.traffic}><CartesianGrid strokeDasharray="3 3" stroke="var(--line)"/><XAxis dataKey="label" tick={{fill:'var(--muted)',fontSize:10}}/><YAxis allowDecimals={false} label={{value:'Checks',angle:-90,position:'insideLeft',fill:'var(--muted)'}} tick={{fill:'var(--muted)',fontSize:10}}/><Tooltip formatter={(value:any)=>`${value} checks`}/><Area dataKey="success" name="Successful checks" stroke="#84cc16" fill="#84cc16" fillOpacity={.14}/><Area dataKey="failed" name="Failed checks" stroke="#f87171" fill="#f87171" fillOpacity={.12}/></AreaChart></ResponsiveContainer></div></section><section className="panel analytics-panel"><div className="panel-heading"><div><h3>HTTP status distribution</h3><p>Response status groups from recorded checks</p></div></div>{d.statusDistribution.length?<div className="analytics-chart"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={d.statusDistribution} dataKey="value" nameKey="name" innerRadius="55%" outerRadius="78%" paddingAngle={3}>{d.statusDistribution.map((_:any,i:number)=><Cell key={i} fill={palette[i%palette.length]}/>)}</Pie><Tooltip formatter={(value:any)=>`${value} checks`}/></PieChart></ResponsiveContainer></div>:<div className="analytics-empty-inline">No HTTP status responses recorded yet.</div>}<div className="analytics-legend">{d.statusDistribution.map((x:any,i:number)=><span key={x.name}><i style={{background:palette[i%palette.length]}}/>{x.name}: {x.value}</span>)}</div></section></div>
+   <section className="panel analytics-panel"><div className="panel-heading"><div><h3>Monitor contribution</h3><p>Configured endpoints ranked by saved health-check count, not customer traffic</p></div></div><div className="analytics-bars">{d.topEndpoints.slice(0,6).map((x:any)=><div className="analytics-bar-row" key={x.monitorId}><span>{x.name}</span><div><i style={{width:`${x.hits?(x.hits/Math.max(1,...d.topEndpoints.map((m:any)=>m.hits)))*100:0}%`}}/></div><b>{x.hits} checks</b></div>)}</div></section>
+  </>}
+  {view==='performance'&&<><div className="metric-grid analytics-metrics">{metric('Average latency',summary?.avgResponseTimeMs==null?'—':`${summary.avgResponseTimeMs} ms`,'Successful checks; cold starts excluded',Clock3)}{metric('P95 latency',summary?.p95ResponseTimeMs==null?'—':`${summary.p95ResponseTimeMs} ms`,'Estimated percentile; requires 20+ successful samples',Zap)}{metric('P99 latency',summary?.p99ResponseTimeMs==null?'—':`${summary.p99ResponseTimeMs} ms`,'Estimated percentile; requires 100+ successful samples',Zap)}{metric('Maximum latency',summary?.maxResponseTimeMs==null?'—':`${summary.maxResponseTimeMs} ms`,'Maximum successful check; cold starts excluded',Clock3)}</div><section className="panel analytics-panel"><div className="panel-heading"><div><h3>Response-time trend</h3><p>Average check latency per time bucket, successful checks only</p></div></div><div className="analytics-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={d.traffic}><CartesianGrid strokeDasharray="3 3" stroke="var(--line)"/><XAxis dataKey="label" tick={{fill:'var(--muted)',fontSize:10}}/><YAxis unit=" ms" tick={{fill:'var(--muted)',fontSize:10}}/><Tooltip formatter={(value:any)=>value==null?'No data':`${value} ms`}/><Bar dataKey="avgLatencyMs" name="Average latency" fill="#38bdf8" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div></section><section className="panel analytics-panel"><div className="panel-heading"><div><h3>Slowest monitored endpoints</h3><p>Ranked by average successful response time</p></div></div><EndpointTable rows={[...d.topEndpoints].filter((x:any)=>x.avgLatencyMs!=null).sort((a:any,b:any)=>b.avgLatencyMs-a.avgLatencyMs).slice(0,10)} mode="performance"/></section></>}
+  {view==='endpoints'&&<><div className="metric-grid three analytics-metrics">{metric('Configured endpoints',summary?.uniqueEndpoints??0,'Monitors in this workspace',Globe2)}{metric('Services',summary?.uniqueServices??0,'Distinct hostnames',Server)}{metric('Checks in selected range',summary?.totalChecks??0,'Activity across all endpoints',Activity)}</div><section className="panel analytics-panel"><div className="panel-heading"><div><h3>Endpoint inventory</h3><p>Configured monitors with check volume and health measurements</p></div></div><EndpointTable rows={d.topEndpoints} mode="inventory"/></section></>}
+  {view==='errors'&&<><div className="metric-grid three analytics-metrics">{metric('Failed checks',summary?.failedChecks??0,'All recorded failures in the selected window',AlertTriangle)}{metric('Workspace error rate',summary?.errorRate==null?'—':`${summary.errorRate}%`,'Failed checks divided by all checks',Activity)}{metric('Affected endpoints',new Set(d.errorGroups.map((x:any)=>x.monitorId)).size,'Distinct endpoints with a failure in this range',Globe2)}</div><section className="panel analytics-panel"><div className="panel-heading"><div><h3>Recurring failure groups</h3><p>Grouped by endpoint, error category and HTTP status within the selected time range.</p></div></div><div className="analytics-table-wrap"><table className="analytics-table"><thead><tr><th>Endpoint</th><th>Failure category</th><th>HTTP</th><th>Occurrences</th><th>First seen</th><th>Last seen</th></tr></thead><tbody>{d.errorGroups.map((x:any,i:number)=><tr key={`${x.monitorId}-${x.category}-${i}`}><td><b>{x.monitorName}</b><small>{x.url}</small></td><td><span className="state-bad">{x.category}</span><small>{x.lastMessage||'No error message was recorded'}</small></td><td>{x.statusCode??'—'}</td><td>{x.count}</td><td>{new Date(x.firstOccurrence).toLocaleString()}</td><td>{new Date(x.lastOccurrence).toLocaleString()}</td></tr>)}</tbody></table>{!d.errorGroups.length&&<div className="analytics-empty-inline">No failed checks in this period.</div>}</div></section><section className="panel analytics-panel"><div className="panel-heading"><div><h3>Failure timeline</h3><p>Unsuccessful monitoring attempts per bucket; use the range selector above to change the window.</p></div></div><div className="analytics-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={d.traffic}><CartesianGrid strokeDasharray="3 3" stroke="var(--line)"/><XAxis dataKey="label" tick={{fill:'var(--muted)',fontSize:10}}/><YAxis allowDecimals={false} label={{value:'Failed checks',angle:-90,position:'insideLeft',fill:'var(--muted)'}} tick={{fill:'var(--muted)',fontSize:10}}/><Tooltip formatter={(value:any)=>`${value} failed checks`}/><Bar dataKey="failed" name="Failed checks" fill="#f87171" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div></section><section className="panel analytics-panel"><div className="panel-heading"><div><h3>Recent failed checks</h3><p>Latest 100 saved failures in the selected range.</p></div><select className="analytics-select" value={errorFilter} onChange={(e)=>setErrorFilter(e.target.value)}><option value="all">All failure types</option>{[...new Set(d.errors.map((x:any)=>x.errorType||'HTTP failure'))].map((x:any)=><option key={x} value={x}>{x}</option>)}</select></div><div className="analytics-table-wrap"><table className="analytics-table"><thead><tr><th>Endpoint</th><th>Failure type / message</th><th>HTTP</th><th>Latency</th><th>Attempts</th><th>Time</th><th>Troubleshooting</th></tr></thead><tbody>{d.errors.filter((x:any)=>errorFilter==='all'?(true):(x.errorType||'HTTP failure')===errorFilter).map((x:any,i:number)=><tr key={`${x.checkedAt}-${i}`}><td><b>{x.monitorName}</b><small>{x.url}</small></td><td><span className="state-bad">{x.errorType||'HTTP failure'}</span><small>{x.message||'No additional error detail was recorded.'}</small></td><td>{x.statusCode??'—'}</td><td>{x.responseTimeMs==null?'—':`${x.responseTimeMs} ms`}</td><td>{x.attempts}</td><td>{new Date(x.checkedAt).toLocaleString()}</td><td><small>{troubleshootingTip(x.errorType,x.statusCode)}</small></td></tr>)}</tbody></table>{!d.errors.length&&<div className="analytics-empty-inline">No failed checks in this period.</div>}</div></section></>}
+  <p className="analytics-data-note">Data source: Sannata saved monitor checks. These metrics do not represent incoming traffic or requests made by your API's end users.</p>
+  </>}
+ </>;
+}
+function EndpointTable({rows,mode}:{rows:any[];mode:'performance'|'inventory'}){return <div className="analytics-table-wrap"><table className="analytics-table"><thead>{mode==='inventory'?<tr><th>Endpoint / service</th><th>Method</th><th>Current health</th><th>Checks</th><th>Error rate</th><th>Average latency</th><th>Last checked</th></tr>:<tr><th>Endpoint / service</th><th>Method</th><th>Checks</th><th>Average latency</th><th>P95 latency (20+ checks)</th></tr>}</thead><tbody>{rows.map((x:any)=><tr key={x.monitorId}><td><a className="endpoint-monitor-link" href={`/app/monitors/${x.monitorId}`}><b>{x.name}</b></a><small>{x.hostname||'Hostname unavailable'} · {x.url}</small></td><td>{x.method}</td>{mode==='inventory'?<><td><span className={'status-tag '+x.status}>{x.status}</span></td><td>{x.hits}</td><td>{x.errorRate==null?'—':`${x.errorRate}%`}</td><td>{x.avgLatencyMs==null?'—':`${x.avgLatencyMs} ms`}</td><td>{x.lastCheckedAt?new Date(x.lastCheckedAt).toLocaleString():'Never'}</td></>:<><td>{x.hits}</td><td>{x.avgLatencyMs==null?'—':`${x.avgLatencyMs} ms`}</td><td>{x.p95LatencyMs==null?'—':`${x.p95LatencyMs} ms`}</td></>}</tr>)}</tbody></table>{!rows.length&&<div className="analytics-empty-inline">No endpoint check data available for this range.</div>}</div>}

@@ -1,9 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { config } from '../config/index.js';
-import { User } from '../models/User.js';
-import { Monitor } from '../models/Monitor.js';
-import { schedulerService } from '../queues/scheduler.js';
+import { config } from './config/index.js';
+import { User } from './models/User.js';
+import { Monitor } from './models/Monitor.js';
+import { schedulerService } from './queues/scheduler.js';
 
 export interface AuthRequest extends Request {
   userId?: string;

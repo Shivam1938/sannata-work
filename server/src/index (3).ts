@@ -1,10 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { config } from '../config/index.js';
-import { logger } from '../config/logger.js';
-import type { IMonitor } from '../models/Monitor.js';
-import type { IIncident } from '../models/Incident.js';
-import type { ICheckResult } from '../models/CheckResult.js';
-import type { ErrorType } from '../models/CheckResult.js';
+import { config } from './config/index.js';
+import { logger } from './config/logger.js';
+import type { IMonitor } from './models/Monitor.js';
+import type { IIncident } from './models/Incident.js';
+import type { ICheckResult } from './models/CheckResult.js';
+import type { ErrorType } from './models/CheckResult.js';
 
 let anthropicClient: Anthropic | null = null;
 

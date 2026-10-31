@@ -4,6 +4,7 @@ import { config } from '../config/index.js';
 import { User } from '../models/User.js';
 import { Monitor } from '../models/Monitor.js';
 import { schedulerService } from '../queues/scheduler.js';
+import { FREE_INTERVAL_PRESETS } from '../services/monitoring-interval.js';
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -46,7 +47,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       user.subscriptionStartedAt = null;
       user.proExpiresAt = null;
       await user.save();
-      const monitors = await Monitor.find({ userId: user._id, intervalSeconds: { $lt: 300 } });
+      const monitors = await Monitor.find({ userId: user._id, intervalSeconds: { $nin: FREE_INTERVAL_PRESETS } });
       for (const monitor of monitors) {
         monitor.intervalSeconds = 300;
         await monitor.save();

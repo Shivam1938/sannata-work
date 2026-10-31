@@ -68,9 +68,9 @@ userSchema.methods.comparePassword = async function (candidate: string): Promise
 // Never expose passwordHash in JSON responses
 userSchema.set('toJSON', {
   transform(_doc, ret) {
-    delete ret.passwordHash;
-    delete ret.telegramLinkCode;
-    delete ret.telegramLinkCodeExpiry;
+    delete (ret as unknown as Record<string, unknown>).passwordHash;
+    delete (ret as unknown as Record<string, unknown>).telegramLinkCode;
+    delete (ret as unknown as Record<string, unknown>).telegramLinkCodeExpiry;
     return ret;
   },
 });

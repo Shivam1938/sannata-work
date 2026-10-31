@@ -6,7 +6,7 @@ import type { ICheckResult } from '../models/CheckResult.js';
 import type { IIncident } from '../models/Incident.js';
 import type { IMonitor } from '../models/Monitor.js';
 import { sendAlerts } from './alert.js';
-import { generateAiSummary, generateRuleBasedSummary } from './ai.js';
+import { generateAiSummary } from './ai.js';
 import { logger } from '../config/logger.js';
 
 const REMINDER_AFTER_MS = 60 * 60 * 1000; // 1 hour
@@ -55,19 +55,8 @@ export async function handleFailedCheck(
   if (consecutiveFailures < failureThreshold) return;
 
   // Open a new incident
-  const user = await User.findById(monitor.userId).select('plan proExpiresAt aiAnalysesUsed');
+  const user = await User.findById(monitor.userId).select('plan proExpiresAt');
   const isPro = user?.plan === 'pro' && (!user.proExpiresAt || user.proExpiresAt.getTime() > Date.now());
-  // Free workspaces receive one AI-powered incident analysis per account.
-  // Reserve that entitlement atomically so concurrent incidents cannot exceed it.
-  let freeAiAllowed = false;
-  if (!isPro) {
-    const reserved = await User.findOneAndUpdate(
-      { _id: monitor.userId, plan: 'free', $or: [{ aiAnalysesUsed: { $lt: 1 } }, { aiAnalysesUsed: { $exists: false } }] },
-      { $inc: { aiAnalysesUsed: 1 } },
-      { new: true }
-    ).select('_id');
-    freeAiAllowed = Boolean(reserved);
-  }
 
   const incident = new Incident({
     monitorId: monitor._id,
@@ -94,7 +83,10 @@ export async function handleFailedCheck(
   );
 
   // Generate AI summary asynchronously (give it 5 seconds to complete before proceeding)
-  const summaryPromise = generateIncidentSummary(incident, monitor, isPro || freeAiAllowed);
+  const summaryPromise = generateIncidentSummary(incident, monitor, isPro).catch((error) => {
+    logger.error({ error }, 'Automatic incident summary generation failed');
+    return null;
+  });
   const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 5000));
   const summary = await Promise.race([summaryPromise, timeoutPromise]);
 
@@ -104,7 +96,7 @@ export async function handleFailedCheck(
     // Update asynchronously
     summaryPromise.then(async (s) => {
       if (s) await Incident.findByIdAndUpdate(incident._id, { aiSummary: s });
-    }).catch(() => {});
+    }).catch((error) => logger.error({ error, incidentId: incident._id }, 'Failed to persist incident analysis'));
   }
 }
 
@@ -170,9 +162,8 @@ async function generateIncidentSummary(
 
   if (isPro) {
     return generateAiSummary('open', monitor, incident, recentChecks);
-  } else {
-    return generateRuleBasedSummary('open', incident.firstErrorType, incident.lastErrorMessage);
   }
+  return null;
 }
 
 async function generateResolutionSummary(
@@ -182,7 +173,6 @@ async function generateResolutionSummary(
 ): Promise<string | null> {
   if (isPro) {
     return generateAiSummary('resolved', monitor, incident, []);
-  } else {
-    return generateRuleBasedSummary('resolved', incident.firstErrorType, null);
   }
+  return null;
 }

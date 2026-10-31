@@ -4,9 +4,13 @@ import { Monitor } from '../models/Monitor.js';
 import { User } from '../models/User.js';
 import type { IMonitor } from '../models/Monitor.js';
 import { logger } from '../config/logger.js';
+import { isValidMonitorInterval, minimumMonitorInterval, MAX_MONITOR_INTERVAL_SECONDS } from '../services/monitoring-interval.js';
+import { createError } from '../middleware/errorHandler.js';
 
 export const MONITOR_QUEUE_NAME = 'monitor-checks';
 export const CLEANUP_QUEUE_NAME = 'cleanup-jobs';
+const monitorRepeatKey = (monitorId: string) => `monitor-${monitorId}`;
+const legacyMonitorJobId = (monitorId: string) => `monitor:${monitorId}`;
 
 let monitorQueue: Queue | null = null;
 let cleanupQueue: Queue | null = null;
@@ -51,12 +55,23 @@ class SchedulerService {
 
     const owner = await User.findById(monitor.userId).select('plan proExpiresAt');
     const proActive = owner?.plan === 'pro' && (!owner.proExpiresAt || owner.proExpiresAt.getTime() > Date.now());
+    const plan = proActive ? 'pro' : 'free';
+    if (!owner || !isValidMonitorInterval(monitor.intervalSeconds, plan)) {
+      throw createError(
+        `Monitor interval must be between ${minimumMonitorInterval(plan)} and ${MAX_MONITOR_INTERVAL_SECONDS} seconds for the current plan.`,
+        400,
+        'INVALID_MONITOR_INTERVAL',
+      );
+    }
     await queue.add(
       'check',
       { monitorId },
       {
-        repeat: { every: monitor.intervalSeconds * 1000 },
-        jobId: `monitor:${monitorId}`,
+        repeat: {
+          every: monitor.intervalSeconds * 1000,
+          key: monitorRepeatKey(monitorId),
+        },
+        jobId: monitorRepeatKey(monitorId),
         delay: jitterMs,
         priority: proActive ? 1 : 10,
       }
@@ -73,14 +88,28 @@ class SchedulerService {
    */
   async removeMonitorJob(monitorId: string): Promise<void> {
     const queue = getMonitorQueue();
-
-    // Get all repeatable jobs and remove the one matching this monitor
     const repeatableJobs = await queue.getRepeatableJobs();
-    for (const job of repeatableJobs) {
-      if (job.id === `monitor:${monitorId}` || job.key.includes(monitorId)) {
-        await queue.removeRepeatableByKey(job.key);
-        logger.info({ monitorId }, 'Removed monitor job');
-      }
+    const key = monitorRepeatKey(monitorId);
+    if (repeatableJobs.some((job) => job.key === key)) {
+      await queue.removeRepeatableByKey(key);
+      logger.info({ monitorId }, 'Removed monitor job');
+    }
+    await this.removeLegacyMonitorJobs(monitorId, repeatableJobs);
+  }
+
+  private async removeLegacyMonitorJobs(
+    monitorId: string,
+    repeatableJobs: Awaited<ReturnType<Queue['getRepeatableJobs']>>,
+  ): Promise<void> {
+    const queue = getMonitorQueue();
+    const intervals = new Set(
+      repeatableJobs
+        .filter((job) => job.name === 'check' && job.every)
+        .map((job) => Number(job.every))
+        .filter((interval) => Number.isInteger(interval) && interval > 0),
+    );
+    for (const every of intervals) {
+      await queue.removeRepeatable('check', { every }, legacyMonitorJobId(monitorId));
     }
   }
 
@@ -103,30 +132,49 @@ class SchedulerService {
 
     // Get all current repeatable jobs
     const repeatableJobs = await queue.getRepeatableJobs();
-    const scheduledIds = new Set(
+    const scheduledJobs = new Map(
       repeatableJobs
-        .filter((j) => j.id?.startsWith('monitor:'))
-        .map((j) => j.id!.replace('monitor:', ''))
+        .filter((job) => job.name === 'check' && job.key.startsWith('monitor-'))
+        .map((job) => [job.key.slice('monitor-'.length), job]),
     );
+    const scheduledIds = new Set(scheduledJobs.keys());
 
-    // Get all non-paused monitors
-    const activeMonitors = await Monitor.find({ status: { $ne: 'paused' } }).select(
-      '_id intervalSeconds userId'
-    );
+    const [activeMonitors, pausedMonitors] = await Promise.all([
+      Monitor.find({ status: { $ne: 'paused' } }).select('_id intervalSeconds userId'),
+      Monitor.find({ status: 'paused' }).select('_id'),
+    ]);
     const activeIds = new Set(activeMonitors.map((m) => m._id.toString()));
 
     // Remove jobs for monitors that no longer exist or are paused
     for (const jobId of scheduledIds) {
       if (!activeIds.has(jobId)) {
-        await this.removeMonitorJob(jobId);
+        await queue.removeRepeatableByKey(monitorRepeatKey(jobId));
       }
+    }
+    for (const monitor of pausedMonitors) {
+      await this.removeMonitorJob(monitor._id.toString());
     }
 
     // Add jobs for monitors that don't have one
     for (const monitor of activeMonitors) {
       const id = monitor._id.toString();
-      if (!scheduledIds.has(id)) {
+      const currentJob = scheduledJobs.get(id);
+      const owner = await User.findById(monitor.userId).select('plan proExpiresAt');
+      const proActive = owner?.plan === 'pro' && (!owner.proExpiresAt || owner.proExpiresAt.getTime() > Date.now());
+      const plan = proActive ? 'pro' : 'free';
+      if (!owner || !isValidMonitorInterval(monitor.intervalSeconds, plan)) {
+        await this.removeMonitorJob(id);
+        logger.warn(
+          { monitorId: id, intervalSeconds: monitor.intervalSeconds, plan },
+          'Monitor scheduling skipped because its interval is not allowed on the current plan',
+        );
+        continue;
+      }
+      if (!currentJob || Number(currentJob.every) !== monitor.intervalSeconds * 1000) {
+        await this.removeMonitorJob(id);
         await this.scheduleMonitor(monitor);
+      } else {
+        await this.removeLegacyMonitorJobs(id, repeatableJobs);
       }
     }
 

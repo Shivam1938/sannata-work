@@ -1,9 +1,9 @@
 import { Queue, QueueEvents } from 'bullmq';
-import { getRedisClient } from '../config/redis.js';
-import { Monitor } from '../models/Monitor.js';
-import { User } from '../models/User.js';
-import type { IMonitor } from '../models/Monitor.js';
-import { logger } from '../config/logger.js';
+import { getRedisClient } from './config/redis.js';
+import { Monitor } from './models/Monitor.js';
+import { User } from './models/User.js';
+import type { IMonitor } from './models/Monitor.js';
+import { logger } from './config/logger.js';
 
 export const MONITOR_QUEUE_NAME = 'monitor-checks';
 export const CLEANUP_QUEUE_NAME = 'cleanup-jobs';

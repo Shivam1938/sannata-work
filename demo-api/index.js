@@ -1,5 +1,13 @@
 import express from 'express';
 import cors from 'cors';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const envPath = join(dirname(fileURLToPath(import.meta.url)), '.env');
+if (existsSync(envPath)) {
+  process.loadEnvFile(envPath);
+}
 
 const app = express();
 const PORT = 3003;
@@ -7,6 +15,45 @@ const PORT = 3003;
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
+
+const sannataKey = process.env.SANNATA_INGESTION_KEY;
+const sannataIngestUrl = process.env.SANNATA_INGEST_URL || 'http://localhost:3001/api/telemetry/events';
+
+// Forward only requests that actually reach this demo API; this does not create traffic.
+app.use((req, res, next) => {
+  const startedAt = performance.now();
+
+  res.on('finish', () => {
+    if (!sannataKey || req.method === 'OPTIONS') return;
+
+    const event = {
+      service: 'sannata-demo-api',
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      latencyMs: Math.round(performance.now() - startedAt),
+      timestamp: new Date().toISOString(),
+    };
+
+    void fetch(sannataIngestUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-sannata-key': sannataKey,
+      },
+      body: JSON.stringify(event),
+      signal: AbortSignal.timeout(5000),
+    }).then(async (response) => {
+      if (!response.ok) {
+        console.error(`Sannata telemetry rejected an event: HTTP ${response.status}`);
+      }
+    }).catch((error) => {
+      console.error('Sannata telemetry delivery failed:', error.message);
+    });
+  });
+
+  next();
+});
 
 // Request logger
 app.use((req, _res, next) => {
@@ -126,6 +173,7 @@ app.get('/state', (_req, res) => {
 // ── Start server ──────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[${new Date().toISOString()}] 🚀 Demo API running on http://localhost:${PORT}`);
+  console.log(`  Sannata telemetry ${sannataKey ? 'enabled' : 'disabled (set SANNATA_INGESTION_KEY to enable)'}`);
   console.log(`  GET  /ok          → always 200`);
   console.log(`  GET  /flaky       → random latency + 1/8 chance of 500`);
   console.log(`  GET  /sleepy      → cold-start simulation (8s if idle >60s)`);

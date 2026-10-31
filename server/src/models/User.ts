@@ -21,6 +21,7 @@ export interface IUser extends Document {
   statusPageEnabled: boolean;
   statusPageTitle: string;
   aiAnalysesUsed: number;
+  telemetryKeyHash: string | null;
   createdAt: Date;
   comparePassword(candidate: string): Promise<boolean>;
 }
@@ -45,6 +46,7 @@ const userSchema = new Schema<IUser>(
     statusPageEnabled: { type: Boolean, default: false },
     statusPageTitle: { type: String, default: 'Status Page' },
     aiAnalysesUsed: { type: Number, default: 0, min: 0 },
+    telemetryKeyHash: { type: String, default: null, select: false },
   },
   { timestamps: true }
 );
