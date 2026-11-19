@@ -1,5 +1,7 @@
 import 'dotenv/config';
 
+console.log('AI key present:', Boolean(process.env.GROQ_API_KEY), 'length:', (process.env.GROQ_API_KEY || '').length);
+
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
   mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/sannata',
